@@ -1,6 +1,7 @@
 import {
-  Image,
+  ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,7 +9,10 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useState } from 'react';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '../context/AuthContext';
+import { usePortalData } from '../hooks/usePortalData';
 import { colors, radius } from '../theme';
 
 /** Weekly summary card surface */
@@ -86,76 +90,60 @@ function WeekDonutGauge({ percent = 100 }) {
 const STUDENT_AVATAR_URI =
   'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=200&q=80';
 
-const BAR_DATA = [
-  { h: 0.45, present: true },
-  { h: 0.62, present: true },
-  { h: 0.38, present: true },
-  { h: 0.55, present: true },
-  { h: 0.48, present: true },
-  { h: 0.5, present: true },
-  { h: 0.42, present: true },
-  { h: 0.35, present: true },
-  { h: 0.2, present: false },
-];
+const STATUS_BAR_H = { PRESENT: 0.82, LATE: 0.55, EXCUSED: 0.45, ABSENT: 0.2 };
+const STATUS_PRESENT = { PRESENT: true, LATE: true, EXCUSED: false, ABSENT: false };
 
-const X_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'F', 'S', 'S'];
+const STATUS_LABEL = { PRESENT: 'Present', LATE: 'Late', ABSENT: 'Absent', EXCUSED: 'Excused' };
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-/** present drives row tint + status color; status text should match */
-const RECENT = [
-  {
-    key: '1',
-    day: 'Today',
-    date: 'Apr 23',
-    present: true,
-    status: 'Present',
-    right: '8:00 AM',
-    subRight: 'On Time',
-  },
-  {
-    key: '2',
-    day: 'Tuesday',
-    date: 'Apr 23',
-    present: true,
-    status: 'Present',
-    right: '8:02 AM',
-    subRight: 'On Time',
-  },
-  {
-    key: '3',
-    day: 'Monday',
-    date: 'Apr 22',
-    present: true,
-    status: 'Present',
-    right: '8:01 AM',
-    subRight: 'On Time',
-  },
-  {
-    key: '4',
-    day: 'Friday',
-    date: 'Apr 19',
-    present: false,
-    status: 'Absent',
-    right: '—',
-    subRight: 'Unexcused',
-  },
-  {
-    key: '5',
-    day: 'Thursday',
-    date: 'Apr 18',
-    present: true,
-    status: 'Present',
-    right: '8:00 AM',
-    subRight: 'On Time',
-  },
-];
-
-function openProfile(navigation) {
-  navigation.navigate('EditProfile');
+function formatRecordDate(dateStr) {
+  const d = new Date(dateStr);
+  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 export default function AttendanceScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const chartHeight = 136;
+  const { student } = useAuth();
+  const { data, isLoading, refetch } = usePortalData();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const records = data?.attendance?.recentRecords ?? [];
+  const rate = data?.attendance?.rate ?? 0;
+  const absences = data?.attendance?.recentAbsences ?? 0;
+  const presentCount = records.filter(r => r.status === 'PRESENT' || r.status === 'LATE').length;
+
+  // Bar chart uses up to 9 most recent records (reversed so oldest→newest left→right)
+  const barRecords = records.slice(0, 9).reverse();
+
+  // Recent list shows up to 7
+  const recentList = records.slice(0, 7);
+
+  const studentName = data?.student
+    ? `${data.student.firstName} ${data.student.lastName}`
+    : student
+    ? `${student.firstName} ${student.lastName}`
+    : 'Student';
+  const className = data?.student?.class?.name ?? student?.class?.name ?? '—';
+  const studentId = data?.student?.studentId ?? student?.studentId ?? '—';
+
+  if (isLoading) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.iconBlue} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -164,144 +152,114 @@ export default function AttendanceScreen({ navigation }) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.headerTitle}>Attendance</Text>
         </Pressable>
-        <Pressable onPress={() => openProfile(navigation)} hitSlop={8}>
-          <View style={styles.headerAvatarWrap}>
-            <Image source={{ uri: STUDENT_AVATAR_URI }} style={styles.headerAvatar} />
-          </View>
-        </Pressable>
       </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{
-          paddingBottom: insets.bottom + 24,
-        }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0369A1" />
+        }
       >
+        {/* Student profile */}
         <View style={styles.profileRow}>
-          <Pressable onPress={() => openProfile(navigation)}>
-            <Image source={{ uri: STUDENT_AVATAR_URI }} style={styles.profileAvatar} />
-          </Pressable>
+          <View style={[styles.profileAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.iconBlueMuted }]}>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: colors.iconBlue }}>
+              {data?.student?.firstName?.[0] ?? '?'}{data?.student?.lastName?.[0] ?? ''}
+            </Text>
+          </View>
           <View style={styles.profileText}>
-            <Pressable onPress={() => openProfile(navigation)}>
-              <Text style={styles.profileName}>Isaac Owusu</Text>
-            </Pressable>
-            <Text style={styles.profileMeta}>Class: 3A</Text>
-            <Text style={styles.profileMeta}>Student ID: 10234</Text>
+            <Text style={styles.profileName}>{studentName}</Text>
+            <Text style={styles.profileMeta}>Class: {className}</Text>
+            <Text style={styles.profileMeta}>Student ID: {studentId}</Text>
           </View>
         </View>
 
+        {/* Weekly card */}
         <View style={styles.weekCard}>
           <View style={styles.weekCardMain}>
             <View style={styles.weekLeftCol}>
               <View style={styles.weekIconTitleRow}>
                 <View style={styles.weekIconCircle}>
-                  <MaterialCommunityIcons
-                    name="calendar-check"
-                    size={30}
-                    color={WEEK_ICON_GREEN}
-                  />
+                  <MaterialCommunityIcons name="calendar-check" size={30} color={WEEK_ICON_GREEN} />
                 </View>
                 <View style={styles.weekTitleBlock}>
-                  <Text style={styles.weekPct}>100% Present</Text>
-                  <Text style={styles.weekSub}>This Week</Text>
+                  <Text style={styles.weekPct}>{rate}% Present</Text>
+                  <Text style={styles.weekSub}>Last 30 days</Text>
                 </View>
               </View>
-              <Text style={styles.weekFoot}>7/7 Days Present</Text>
+              <Text style={styles.weekFoot}>{presentCount}/{records.length} Days Present</Text>
             </View>
-            <WeekDonutGauge percent={100} />
+            <WeekDonutGauge percent={rate} />
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Monthly Attendance</Text>
+        {/* Monthly Attendance */}
+        <Text style={styles.sectionTitle}>Recent Attendance</Text>
         <View style={styles.monthCard}>
-          <View style={styles.monthCardHeader}>
-            <View style={styles.monthCardHeaderText}>
-              <Text style={styles.monthEyebrow}>Calendar overview</Text>
-              <Text style={styles.monthCardTitle}>April 2025</Text>
-            </View>
-            <View style={styles.monthNavGroup}>
-              <Pressable
-                style={({ pressed }) => [styles.monthNavBtn, pressed && styles.monthNavBtnPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="Previous month"
-              >
-                <Ionicons name="chevron-back" size={18} color={colors.iconBlue} />
-              </Pressable>
-              <View style={styles.monthNavDivider} />
-              <Pressable
-                style={({ pressed }) => [styles.monthNavBtn, pressed && styles.monthNavBtnPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="Next month"
-              >
-                <Ionicons name="chevron-forward" size={18} color={colors.iconBlue} />
-              </Pressable>
-            </View>
-          </View>
-
           <View style={styles.monthStatsRow}>
             <View style={styles.monthStatHero}>
-              <Text style={styles.monthStatValue}>96%</Text>
+              <Text style={styles.monthStatValue}>{rate}%</Text>
               <Text style={styles.monthStatLabel}>Attendance rate</Text>
             </View>
             <View style={styles.monthStatChips}>
               <View style={styles.monthChipPresent}>
                 <View style={styles.monthChipDot} />
-                <Text style={styles.monthChipText}>23 days present</Text>
+                <Text style={styles.monthChipText}>{presentCount} days present</Text>
               </View>
               <View style={styles.monthChipAbsent}>
                 <View style={[styles.monthChipDot, styles.monthChipDotAbsent]} />
-                <Text style={styles.monthChipTextAbsent}>1 absent</Text>
+                <Text style={styles.monthChipTextAbsent}>{absences} absent</Text>
               </View>
             </View>
           </View>
 
-          <View style={styles.chartWrap}>
-            <View style={styles.chartY}>
-              <Text style={styles.yLabel}>100%</Text>
-              <Text style={styles.yLabel}>50%</Text>
-              <Text style={styles.yLabel}>0%</Text>
+          {barRecords.length > 0 && (
+            <View style={styles.chartWrap}>
+              <View style={styles.chartY}>
+                <Text style={styles.yLabel}>100%</Text>
+                <Text style={styles.yLabel}>50%</Text>
+                <Text style={styles.yLabel}>0%</Text>
+              </View>
+              <View style={styles.chartMain}>
+                <View style={[styles.chartGrid, { height: chartHeight }]}>
+                  {[0, 1, 2].map((i) => (
+                    <View key={i} style={[styles.gridLine, { top: (chartHeight / 3) * i }]} />
+                  ))}
+                </View>
+                <View style={[styles.barsRow, { height: chartHeight }]}>
+                  {barRecords.map((b, i) => {
+                    const isPresent = b.status === 'PRESENT' || b.status === 'LATE';
+                    const h = b.status === 'PRESENT' ? 0.82 : b.status === 'LATE' ? 0.55 : b.status === 'EXCUSED' ? 0.45 : 0.2;
+                    return (
+                      <View key={i} style={styles.barCol}>
+                        <View style={styles.barTrack}>
+                          <View
+                            style={[
+                              styles.barFill,
+                              {
+                                height: Math.max(8, chartHeight * h * 0.94),
+                                backgroundColor: isPresent ? colors.success : colors.danger,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+                <View style={styles.xLabels}>
+                  {barRecords.map((b, i) => {
+                    const d = new Date(b.date);
+                    return (
+                      <Text key={i} style={styles.xLab}>{DAYS[d.getDay()][0]}</Text>
+                    );
+                  })}
+                </View>
+              </View>
             </View>
-            <View style={styles.chartMain}>
-              <View style={[styles.chartGrid, { height: chartHeight }]}>
-                {[0, 1, 2].map((i) => (
-                  <View
-                    key={i}
-                    style={[styles.gridLine, { top: (chartHeight / 3) * i }]}
-                  />
-                ))}
-              </View>
-              <View style={[styles.barsRow, { height: chartHeight }]}>
-                {BAR_DATA.map((b, i) => (
-                  <View key={i} style={styles.barCol}>
-                    <View style={styles.barTrack}>
-                      <View
-                        style={[
-                          styles.barFill,
-                          {
-                            height: Math.max(
-                              8,
-                              chartHeight * b.h * 0.94,
-                            ),
-                            backgroundColor: b.present
-                              ? colors.success
-                              : colors.danger,
-                          },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.xLabels}>
-                {X_LABELS.map((l, i) => (
-                  <Text key={i} style={styles.xLab}>
-                    {l}
-                  </Text>
-                ))}
-              </View>
-            </View>
-          </View>
+          )}
 
           <View style={styles.monthLegendRow}>
             <View style={styles.legendChip}>
@@ -315,62 +273,59 @@ export default function AttendanceScreen({ navigation }) {
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, styles.recentSectionTitle]}>
-          Recent Attendance
-        </Text>
+        {/* Recent list */}
+        <Text style={[styles.sectionTitle, styles.recentSectionTitle]}>Recent Records</Text>
         <View style={styles.recentList}>
-          {RECENT.map((r) => (
-            <View
-              key={r.key}
-              style={[
-                styles.recentRowOuter,
-                r.present ? styles.recentRowTintPresent : styles.recentRowTintAbsent,
-              ]}
-            >
-              <View
-                style={[
-                  styles.recentAccentBar,
-                  { backgroundColor: r.present ? colors.success : colors.danger },
-                ]}
-              />
-              <View style={styles.recentRowInner}>
-                <View style={styles.recentLeftCol}>
-                  <Text style={styles.recentDateLine} numberOfLines={1}>
-                    {r.day === 'Today' ? `Today · ${r.date}` : `${r.day}, ${r.date}`}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.recentStatusMin,
-                      r.present ? styles.recentStatusPresent : styles.recentStatusAbsent,
-                    ]}
-                  >
-                    {r.status}
-                  </Text>
-                </View>
-                <View style={styles.recentTimesMin}>
-                  <Text
-                    style={[
-                      styles.recentTimeMin,
-                      r.present ? styles.recentTimePresent : styles.recentTimeAbsent,
-                    ]}
-                  >
-                    {r.right}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.recentSubTimeMin,
-                      r.present && r.subRight === 'On Time'
-                        ? styles.recentSubOnTime
-                        : null,
-                      !r.present ? styles.recentSubAbsentNote : null,
-                    ]}
-                  >
-                    {r.subRight}
-                  </Text>
-                </View>
-              </View>
+          {recentList.length === 0 ? (
+            <View style={styles.recentRowOuter}>
+              <Text style={{ padding: 16, color: colors.textMuted }}>No attendance records yet</Text>
             </View>
-          ))}
+          ) : (
+            recentList.map((r, idx) => {
+              const isPresent = r.status === 'PRESENT' || r.status === 'LATE';
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.recentRowOuter,
+                    isPresent ? styles.recentRowTintPresent : styles.recentRowTintAbsent,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.recentAccentBar,
+                      { backgroundColor: isPresent ? colors.success : colors.danger },
+                    ]}
+                  />
+                  <View style={styles.recentRowInner}>
+                    <View style={styles.recentLeftCol}>
+                      <Text style={styles.recentDateLine} numberOfLines={1}>
+                        {formatRecordDate(r.date)}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.recentStatusMin,
+                          isPresent ? styles.recentStatusPresent : styles.recentStatusAbsent,
+                        ]}
+                      >
+                        {STATUS_LABEL[r.status] ?? r.status}
+                      </Text>
+                    </View>
+                    <View style={styles.recentTimesMin}>
+                      <Text
+                        style={[
+                          styles.recentTimeMin,
+                          isPresent ? styles.recentTimePresent : styles.recentTimeAbsent,
+                        ]}
+                      >
+                        {r.status === 'LATE' ? 'Late' : r.status === 'EXCUSED' ? 'Excused' : isPresent ? 'On Time' : '—'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
       </ScrollView>
     </View>

@@ -1,6 +1,7 @@
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import Svg, {
   Circle,
   Defs,
@@ -12,10 +13,8 @@ import Svg, {
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
+import { usePortalData, scoreToGrade, average } from '../hooks/usePortalData';
 import { colors } from '../theme';
-
-const STUDENT_AVATAR_URI =
-  'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=200&q=80';
 
 function arcPath(cx, cy, r, startDeg, endDeg) {
   const rad = (d) => (d * Math.PI) / 180;
@@ -27,14 +26,14 @@ function arcPath(cx, cy, r, startDeg, endDeg) {
   return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
 }
 
-function GradeDonut({ grade = 'A', percent = 90 }) {
+function GradeDonut({ grade = '—', percent = 0 }) {
   const view = 120;
   const cx = 60;
   const cy = 60;
   const r = 42;
   const stroke = 14;
   const start = -90;
-  const end = start + (360 * percent) / 100;
+  const end = start + (360 * Math.min(100, Math.max(0, percent))) / 100;
   return (
     <View style={styles.gradeDonutWrap}>
       <Svg width={view} height={view} viewBox={`0 0 ${view} ${view}`}>
@@ -52,13 +51,15 @@ function GradeDonut({ grade = 'A', percent = 90 }) {
           strokeLinecap="round"
           fill="none"
         />
-        <Path
-          d={arcPath(cx, cy, r, start, end)}
-          stroke="url(#gradeRing)"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          fill="none"
-        />
+        {percent > 0 && (
+          <Path
+            d={arcPath(cx, cy, r, start, end)}
+            stroke="url(#gradeRing)"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            fill="none"
+          />
+        )}
       </Svg>
       <View style={styles.gradeDonutInner} pointerEvents="none">
         <Text style={styles.gradeLetter}>{grade}</Text>
@@ -67,59 +68,134 @@ function GradeDonut({ grade = 'A', percent = 90 }) {
   );
 }
 
-function Radar({ values = [0.9, 0.84, 0.99, 0.86, 0.92] }) {
+// subjects: array of { label: string, value: 0–1 }
+function Radar({ subjects = [] }) {
+  const padded = [...subjects.slice(0, 5)];
+  while (padded.length < 5) padded.push({ label: '', value: 0 });
+
   const size = 140;
   const cx = 70;
   const cy = 68;
   const r = 46;
-  const angles = [-90, -18, 54, 126, 198]; // 5 points
+  const ANGLES = [-90, -18, 54, 126, 198];
+  const LABEL_POSITIONS = [
+    { x: 48, y: 12 },
+    { x: 112, y: 52 },
+    { x: 82, y: 120 },
+    { x: 2, y: 120 },
+    { x: 2, y: 52 },
+  ];
+
   const p = (deg, rr) => {
     const rad = (deg * Math.PI) / 180;
     return [cx + rr * Math.cos(rad), cy + rr * Math.sin(rad)];
   };
-  const ring = (scale) => angles.map((a) => p(a, r * scale).join(',')).join(' ');
-  const poly = angles
-    .map((a, i) => p(a, r * Math.max(0.2, Math.min(1, values[i]))).join(','))
-    .join(' ');
+  const ring = (scale) => ANGLES.map((a) => p(a, r * scale).join(',')).join(' ');
+  const poly = ANGLES.map((a, i) =>
+    p(a, r * Math.max(0.1, Math.min(1, padded[i].value))).join(',')
+  ).join(' ');
+
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <Polygon points={ring(1)} fill="none" stroke="rgba(15, 23, 42, 0.10)" />
       <Polygon points={ring(0.75)} fill="none" stroke="rgba(15, 23, 42, 0.08)" />
       <Polygon points={ring(0.5)} fill="none" stroke="rgba(15, 23, 42, 0.06)" />
-      {angles.map((a, i) => {
+      {ANGLES.map((a, i) => {
         const [x, y] = p(a, r);
         return <Line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(15, 23, 42, 0.06)" />;
       })}
       <Polygon points={poly} fill="rgba(59, 130, 246, 0.28)" stroke="rgba(37, 99, 235, 0.65)" />
-      {angles.map((a, i) => {
-        const [x, y] = p(a, r * Math.max(0.2, Math.min(1, values[i])));
+      {ANGLES.map((a, i) => {
+        const [x, y] = p(a, r * Math.max(0.1, Math.min(1, padded[i].value)));
         return <Circle key={`c-${i}`} cx={x} cy={y} r={3} fill="rgba(37, 99, 235, 0.9)" />;
       })}
-      <SvgText x={14} y={70} fontSize="10" fill={colors.textSoft}>
-        Art
-      </SvgText>
-      <SvgText x={60} y={18} fontSize="10" fill={colors.textSoft}>
-        Math
-      </SvgText>
-      <SvgText x={112} y={70} fontSize="10" fill={colors.textSoft}>
-        99%
-      </SvgText>
-      <SvgText x={30} y={116} fontSize="10" fill={colors.textSoft}>
-        84%
-      </SvgText>
-      <SvgText x={82} y={124} fontSize="10" fill={colors.textSoft}>
-        Social
-      </SvgText>
+      {padded.map((s, i) =>
+        s.label ? (
+          <SvgText key={`l-${i}`} x={LABEL_POSITIONS[i].x} y={LABEL_POSITIONS[i].y} fontSize="10" fill={colors.textSoft}>
+            {s.label}
+          </SvgText>
+        ) : null
+      )}
     </Svg>
+  );
+}
+
+function InitialsAvatar({ name = '', size = 38, bg = '#CBD5E1' }) {
+  const initials = name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return (
+    <View style={[styles.initialsAvatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
+      <Text style={[styles.initialsText, { fontSize: size * 0.35 }]}>{initials || '?'}</Text>
+    </View>
   );
 }
 
 export default function PerformanceScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { data, isLoading, refetch } = usePortalData();
+  const [refreshing, setRefreshing] = useState(false);
 
-  const goProfile = () => {
-    navigation.navigate('Overview', { screen: 'EditProfile' });
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.iconBlue} />
+      </View>
+    );
+  }
+
+  const results = data?.results ?? [];
+  const scores = results.map((r) => r.totalScore).filter((s) => s != null);
+  const avgScore = average(scores);
+  const avgGrade = scoreToGrade(avgScore);
+
+  // Trend: compare first-half avg vs second-half avg of subjects
+  let trendLabel = 'No data';
+  let trendColor = colors.textMuted;
+  if (scores.length >= 2) {
+    const mid = Math.floor(scores.length / 2);
+    const firstHalf = average(scores.slice(0, mid));
+    const secondHalf = average(scores.slice(mid));
+    const diff = Math.round((secondHalf - firstHalf) * 10) / 10;
+    if (diff > 0) {
+      trendLabel = `+${diff.toFixed(0)}% Increase`;
+      trendColor = '#2F9E74';
+    } else if (diff < 0) {
+      trendLabel = `${diff.toFixed(0)}% Decrease`;
+      trendColor = '#EF4444';
+    } else {
+      trendLabel = 'Stable';
+      trendColor = '#F59E0B';
+    }
+  }
+
+  // Trend chart bars — up to 8 subjects
+  const trendSubjects = results.slice(0, 8);
+  const trendBarCount = trendSubjects.length;
+  const trendBarW = 10;
+  const trendSpacing = trendBarCount > 0 ? Math.min(18, Math.floor(146 / trendBarCount)) : 18;
+  const chartH = 78;
+
+  // Radar subjects — up to 5
+  const radarSubjects = results.slice(0, 5).map((r) => ({
+    label: r.subject.split(' ')[0],
+    value: r.totalScore != null ? r.totalScore / 100 : 0,
+  }));
+
+  const latestRemarks = data?.latestRemarks ?? null;
+  const teacherName = data?.student?.class?.teacher?.name ?? 'Class Teacher';
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -132,145 +208,149 @@ export default function PerformanceScreen({ navigation }) {
           <Ionicons name="chevron-back" size={22} color={colors.text} />
           <Text style={styles.headerTitle}>Performance</Text>
         </Pressable>
- 
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 18 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0369A1" />
+        }
       >
-     
-        <View style={styles.topCardsRow}>
-          <View style={styles.topCard}>
-            <View style={styles.topCardBgAqua} />
-            <Text style={styles.topCardTitle}>Overall Grade</Text>
-            <View style={styles.gradeRow}>
-              <GradeDonut grade="A" percent={90} />
-              <View style={styles.gradeRight}>
+        {results.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="bar-chart-outline" size={40} color={colors.textSoft} />
+            <Text style={styles.emptyTitle}>No performance data</Text>
+            <Text style={styles.emptyBody}>Results will appear here once the school publishes examination scores.</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.topCardsRow}>
+              {/* Overall Grade */}
+              <View style={styles.topCard}>
+                <View style={styles.topCardBgAqua} />
+                <Text style={styles.topCardTitle}>Overall Grade</Text>
+                <View style={styles.gradeRow}>
+                  <GradeDonut grade={avgGrade} percent={avgScore ?? 0} />
+                  <View style={styles.gradeRight}>
+                    <Text style={styles.gradePct}>
+                      {avgScore != null ? `${avgScore.toFixed(0)}%` : '—'}
+                    </Text>
+                    <Text style={styles.gradeSub}>Average{'\n'}across all{'\n'}subjects</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Performance Trend */}
+              <View style={styles.topCard}>
+                <View style={styles.topCardBgMint} />
+                <Text style={styles.topCardTitle}>Performance Trend</Text>
+                <Text style={[styles.trendUp, { color: trendColor }]}>{trendLabel}</Text>
+                <View style={styles.trendChartWrap}>
+                  <Svg width={160} height={86} viewBox="0 0 160 86">
+                    <Defs>
+                      <LinearGradient id="barWarm" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor="#F59E0B" stopOpacity="0.85" />
+                        <Stop offset="1" stopColor="#F59E0B" stopOpacity="0.35" />
+                      </LinearGradient>
+                      <LinearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor="#22C55E" stopOpacity="0.92" />
+                        <Stop offset="1" stopColor="#22C55E" stopOpacity="0.35" />
+                      </LinearGradient>
+                    </Defs>
+                    {[24, 48, 72].map((y) => (
+                      <Line key={y} x1="0" y1={y} x2="160" y2={y} stroke="rgba(15, 23, 42, 0.05)" />
+                    ))}
+                    {trendSubjects.map((r, i) => {
+                      const h = r.totalScore != null ? Math.max(4, (r.totalScore / 100) * chartH) : 4;
+                      const x = 14 + i * trendSpacing;
+                      const mid = Math.floor(trendBarCount / 2);
+                      const fill = i < mid ? 'url(#barWarm)' : 'url(#barGreen)';
+                      return (
+                        <Rect key={i} x={x} y={chartH - h} width={trendBarW} height={h} rx="2" fill={fill} />
+                      );
+                    })}
+                    {trendSubjects.length > 1 && (() => {
+                      const pts = trendSubjects.map((r, i) => {
+                        const h = r.totalScore != null ? Math.max(4, (r.totalScore / 100) * chartH) : 4;
+                        return [14 + i * trendSpacing + trendBarW / 2, chartH - h];
+                      });
+                      const d = pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ');
+                      return <Path d={d} stroke="#2F9E74" strokeWidth="2.5" fill="none" />;
+                    })()}
+                  </Svg>
+                  <View style={styles.trendAxis}>
+                    {trendSubjects.map((r, i) => (
+                      <Text key={i} style={styles.trendAxisLabel} numberOfLines={1}>
+                        {r.subject.slice(0, 3)}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
               </View>
             </View>
-          </View>
 
-          <View style={styles.topCard}>
-            <View style={styles.topCardBgMint} />
-            <Text style={styles.topCardTitle}>Performance Trend</Text>
-            <Text style={styles.trendUp}>+3% Increase</Text>
-            <View style={styles.trendChartWrap}>
-              <Svg width={160} height={86} viewBox="0 0 160 86">
-                <Defs>
-                  <LinearGradient id="barWarm" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor="#F59E0B" stopOpacity="0.85" />
-                    <Stop offset="1" stopColor="#F59E0B" stopOpacity="0.35" />
-                  </LinearGradient>
-                  <LinearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor="#22C55E" stopOpacity="0.92" />
-                    <Stop offset="1" stopColor="#22C55E" stopOpacity="0.35" />
-                  </LinearGradient>
-                </Defs>
-
-                {[24, 48, 72].map((y) => (
-                  <Line
-                    key={y}
-                    x1="0"
-                    y1={y}
-                    x2="160"
-                    y2={y}
-                    stroke="rgba(15, 23, 42, 0.05)"
-                  />
-                ))}
-
-                {Array.from({ length: 8 }).map((_, i) => {
-                  const x = 14 + i * 18;
-                  const h = 10 + i * 6;
-                  const fill = i < 3 ? 'url(#barWarm)' : 'url(#barGreen)';
-                  return (
-                    <Rect
-                      key={i}
-                      x={x}
-                      y={78 - h}
-                      width="10"
-                      height={h}
-                      rx="2"
-                      fill={fill}
-                    />
-                  );
-                })}
-
-                <Path
-                  d="M10 66 C 35 62, 40 54, 58 48 C 78 40, 92 36, 110 28 C 130 18, 142 12, 152 10"
-                  stroke="#2F9E74"
-                  strokeWidth="3"
-                  fill="none"
-                />
-                <Path
-                  d="M146 10 L156 10 L156 20"
-                  stroke="#2F9E74"
-                  strokeWidth="3"
-                  fill="none"
-                />
-              </Svg>
-              <View style={styles.trendAxis}>
-                {['1', '2', '3', '4', '5', '6', '7', '7'].map((l, i) => (
-                  <Text key={i} style={styles.trendAxisLabel}>
-                    {l}
-                  </Text>
-                ))}
+            {/* Radar Chart */}
+            <Text style={styles.sectionTitle}>Subject Performance</Text>
+            <View style={styles.subjectCard}>
+              <View style={styles.subjectLeft}>
+                <View style={styles.subjectLeftBg}>
+                  <View style={styles.subjectLeftGlow1} />
+                  <View style={styles.subjectLeftGlow2} />
+                  <Radar subjects={radarSubjects} />
+                </View>
               </View>
             </View>
-          </View>
-        </View>
 
-        <Text style={styles.sectionTitle}>Subject Performance</Text>
-        <View style={styles.subjectCard}>
-          <View style={styles.subjectLeft}>
-            <View style={styles.subjectLeftBg}>
-              <View style={styles.subjectLeftGlow1} />
-              <View style={styles.subjectLeftGlow2} />
-              <Radar />
-            </View>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Teacher’s Remarks</Text>
-        <View style={styles.remarkCard}>
-          <View style={styles.remarkHeader}>
-            <Image source={{ uri: 'https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?auto=format&fit=crop&w=120&q=80' }} style={styles.remarkAvatar} />
-            <View style={styles.remarkHeaderMid}>
-              <Text style={styles.remarkName}>Mr. Johnson</Text>
-              <Text style={styles.remarkBody}>
-                Isaac consistently excels in math. Keep up the great work!
-              </Text>
-              <View style={styles.remarkTagRow}>
-                <Ionicons name="book-outline" size={14} color={colors.textMuted} />
-                <Text style={styles.remarkTag}>Math</Text>
+            {/* Remarks */}
+            {latestRemarks ? (
+              <>
+                <Text style={styles.sectionTitle}>Remarks</Text>
+                {latestRemarks.teacherRemarks && (
+                  <View style={styles.remarkCard}>
+                    <View style={styles.remarkHeader}>
+                      <InitialsAvatar name={teacherName} bg="#DBEAFE" />
+                      <View style={styles.remarkHeaderMid}>
+                        <Text style={styles.remarkName}>{teacherName}</Text>
+                        <Text style={styles.remarkBody}>{latestRemarks.teacherRemarks}</Text>
+                        <View style={styles.remarkTagRow}>
+                          <Ionicons name="person-outline" size={14} color={colors.textMuted} />
+                          <Text style={styles.remarkTag}>Class Teacher · {latestRemarks.term ?? ''}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.remarkRight}>
+                        <Ionicons name="leaf-outline" size={16} color="#2F9E74" />
+                      </View>
+                    </View>
+                  </View>
+                )}
+                {latestRemarks.headmasterRemarks && (
+                  <View style={styles.remarkCardAlt}>
+                    <View style={styles.remarkHeader}>
+                      <InitialsAvatar name="Headmaster" bg="#DCFCE7" />
+                      <View style={styles.remarkHeaderMid}>
+                        <Text style={styles.remarkName}>Headmaster</Text>
+                        <Text style={styles.remarkBody}>{latestRemarks.headmasterRemarks}</Text>
+                        <View style={styles.remarkTagRow}>
+                          <Ionicons name="school-outline" size={14} color={colors.textMuted} />
+                          <Text style={styles.remarkTag}>Head Teacher · {latestRemarks.term ?? ''}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.remarkRight}>
+                        <Ionicons name="leaf-outline" size={16} color="#2F9E74" />
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.noRemarksCard}>
+                <Ionicons name="chatbubble-outline" size={32} color={colors.textSoft} />
+                <Text style={styles.noRemarksText}>No remarks recorded yet</Text>
               </View>
-            </View>
-            <View style={styles.remarkRight}>
-              <Text style={styles.remarkDate}>Mar 15, 2024</Text>
-              <Ionicons name="leaf-outline" size={16} color="#2F9E74" />
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.remarkCardAlt}>
-          <View style={styles.remarkHeader}>
-            <Image source={{ uri: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=120&q=80' }} style={styles.remarkAvatar} />
-            <View style={styles.remarkHeaderMid}>
-              <Text style={styles.remarkName}>Miss Anderson</Text>
-              <Text style={styles.remarkBody}>
-                Excellent performance in science. Shows a great curiosity for learning.
-              </Text>
-              <View style={styles.remarkTagRow}>
-                <Ionicons name="flask-outline" size={14} color={colors.textMuted} />
-                <Text style={styles.remarkTag}>Science</Text>
-              </View>
-            </View>
-            <View style={styles.remarkRight}>
-              <Text style={styles.remarkDate}>Mar 12, 2024</Text>
-              <Ionicons name="leaf-outline" size={16} color="#2F9E74" />
-            </View>
-          </View>
-        </View>
+            )}
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -286,19 +366,19 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   headerTitle: { fontSize: 17, fontWeight: '800', color: colors.text },
-  headerAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#CBD5E1' },
 
-  profileCard: {
-    backgroundColor: colors.classCardBlue,
+  emptyCard: {
+    backgroundColor: colors.white,
     borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
+    padding: 28,
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+    marginTop: 12,
   },
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  profileAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#CBD5E1' },
-  profileText: { flex: 1 },
-  profileName: { fontSize: 16, fontWeight: '800', color: colors.text },
-  profileMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  emptyBody: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
 
   topCardsRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
   topCard: {
@@ -347,10 +427,10 @@ const styles = StyleSheet.create({
   gradePct: { fontSize: 22, fontWeight: '900', color: '#14532D' },
   gradeSub: { fontSize: 11, fontWeight: '600', color: colors.textMuted, marginTop: 4, lineHeight: 14 },
 
-  trendUp: { marginTop: 6, fontSize: 14, fontWeight: '800', color: '#2F9E74' },
+  trendUp: { marginTop: 6, fontSize: 13, fontWeight: '800' },
   trendChartWrap: { marginTop: 6 },
-  trendAxis: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, marginTop: 2 },
-  trendAxisLabel: { fontSize: 10, fontWeight: '600', color: colors.textSoft, width: 16, textAlign: 'center' },
+  trendAxis: { flexDirection: 'row', justifyContent: 'flex-start', gap: 8, paddingHorizontal: 10, marginTop: 2 },
+  trendAxisLabel: { fontSize: 9, fontWeight: '600', color: colors.textSoft, width: 16 },
 
   sectionTitle: { fontSize: 15, fontWeight: '800', color: colors.text, marginTop: 6, marginBottom: 10 },
   subjectCard: {
@@ -394,7 +474,9 @@ const styles = StyleSheet.create({
     bottom: -120,
     right: -90,
   },
-  // right-side list removed per request
+
+  initialsAvatar: { alignItems: 'center', justifyContent: 'center' },
+  initialsText: { fontWeight: '800', color: '#334155' },
 
   remarkCard: {
     backgroundColor: colors.white,
@@ -413,13 +495,22 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   remarkHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  remarkAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#CBD5E1' },
   remarkHeaderMid: { flex: 1, minWidth: 0 },
   remarkRight: { alignItems: 'flex-end', gap: 6 },
   remarkName: { fontSize: 14, fontWeight: '800', color: colors.text },
-  remarkDate: { fontSize: 11, fontWeight: '600', color: colors.textSoft },
   remarkBody: { marginTop: 6, fontSize: 12, lineHeight: 17, color: colors.textMuted, fontWeight: '500' },
   remarkTagRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   remarkTag: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
-});
 
+  noRemarksCard: {
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    padding: 20,
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+    marginBottom: 14,
+  },
+  noRemarksText: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
+});
