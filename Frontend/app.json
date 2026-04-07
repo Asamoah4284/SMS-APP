@@ -23,6 +23,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["./plugins/withAsyncStorageMaven.js"],
+    "extra": {
+      "eas": {
+        "projectId": "18f9d220-a029-4fce-b817-699675cf2e58"
+      }
     }
   }
 }
