@@ -13,15 +13,23 @@ export function SchoolProvider({ children }) {
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/schools/config`);
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error('School config response was not valid JSON');
+        }
 
         if (!res.ok) {
-          throw new Error(data.error || 'Failed to fetch school config');
+          throw new Error(data?.error || 'Failed to fetch school config');
         }
 
         setSchool(data.school);
       } catch (err) {
-        console.warn('Failed to fetch school config:', err.message);
+        console.warn(
+          'School config unavailable (using defaults).',
+          err?.message ?? err,
+        );
         // Use sensible defaults if fetch fails
         setSchool({
           name: 'School Portal',
