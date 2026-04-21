@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 
-/** Design tokens — muted, subtle surfaces (no strong color blocks) */
+/** Design tokens — school logo brand palette
+ *  Primary:  Navy  #1B4480  (logo shield blue)
+ *  Accent:   Gold  #C9A020  (logo outer ring gold)
+ */
 export const colors = {
   bg: '#FFFFFF',
   text: '#0F172A',
@@ -10,19 +13,20 @@ export const colors = {
   border: '#E8ECF1',
   borderLight: '#F0F2F5',
 
-  /** Class banner — barely-there blue-gray */
-  cardBlue: '#F3F5F9',
-  /** Class card — very light cool tint (low chroma) */
-  classCardBlue: '#F3F6FA',
+  /** Class banner / card surfaces — subtle navy tint */
+  cardBlue: '#F0F4FA',
+  classCardBlue: '#EEF3FA',
 
-  iconBlue: '#2563EB',
-  iconBlueMuted: '#E8EEF5',
+  /** Logo navy — primary interactive & icon colour */
+  iconBlue: '#1B4480',
+  iconBlueMuted: '#E3ECF7',
 
   red: '#DC2626',
   redMuted: '#F3EDED',
 
-  yellow: '#CA8A04',
-  yellowMuted: '#F5F3EB',
+  /** Logo gold ring — accent & highlight colour */
+  yellow: '#C9A020',
+  yellowMuted: '#F5F0E0',
 
   purple: '#7C3AED',
   purpleMuted: '#F2F0F7',
@@ -30,42 +34,49 @@ export const colors = {
   green: '#16A34A',
   greenMuted: '#ECF3EE',
 
-  /** Highlight card tops — almost flat; variation is very slight */
+  /** Highlight card top tints */
   highlightTop: '#FAFAFB',
   highlightTopAlt: '#F9FAFB',
 
-  /** Today's Highlights — reference tints */
-  hlAttendanceBg: '#ECFDF5',
-  hlAttendanceIcon: '#10B981',
-  hlGradesBg: '#EFF6FF',
-  hlGradesIcon: '#3B82F6',
-  hlFeeBlueBg: '#EEF2FF',
-  hlFeeBlueText: '#1E293B',
-  hlFeeOrangeBg: '#FFF7ED',
-  hlFeeOrangeAmt: '#B45309',
+  /** Today's Highlights */
+  hlAttendanceBg:  '#ECFDF5',
+  hlAttendanceIcon:'#10B981',
+  hlGradesBg:      '#EEF3FA',   // logo navy-tinted
+  hlGradesIcon:    '#1B4480',   // logo navy
+  hlFeeBlueBg:     '#EEF3FA',   // logo navy-tinted
+  hlFeeBlueText:   '#1E293B',
+  hlFeeOrangeBg:   '#FFF7ED',
+  hlFeeOrangeAmt:  '#B45309',
 
   orange: '#EA580C',
   orangeMuted: '#F7F2EE',
 
-  /** Quick actions grid — pastel chips (reference layout) */
-  quickExamBg: '#DCFCE7',
-  quickExamFg: '#15803D',
-  quickGradesBg: '#DBEAFE',
-  quickGradesFg: '#1D4ED8',
-  quickFeesBg: '#FFEDD5',
-  quickFeesFg: '#C2410C',
-  quickTimeBg: '#EDE9FE',
-  quickTimeFg: '#6D28D9',
+  /** Quick-actions grid chips */
+  quickExamBg:   '#DCFCE7',
+  quickExamFg:   '#15803D',
+  quickGradesBg: '#E3ECF7',   // logo navy muted
+  quickGradesFg: '#1B4480',   // logo navy
+  quickFeesBg:   '#FFEDD5',
+  quickFeesFg:   '#C2410C',
+  quickTimeBg:   '#F5F0E0',   // logo gold muted
+  quickTimeFg:   '#7A5E0A',   // dark gold
 
-  tabActive: '#2563EB',
+  tabActive:   '#1B4480',     // logo shield navy
   tabInactive: '#9CA3AF',
 
-  /** Status — attendance / alerts */
+  /** Status */
   success: '#10B981',
-  danger: '#EF4444',
+  danger:  '#EF4444',
+
+  /** Direct logo brand tokens for explicit use */
+  brandGold:      '#C9A020',
+  brandGoldDark:  '#A07C10',
+  brandNavy:      '#1B4480',
+  brandNavyLight: '#2A5BA8',  // slightly lighter navy for gradients
+  brandNavyMuted: '#E3ECF7',
 };
 
-/** Shared card elevation for screens */
+/** Shared card elevation */
 export const shadowCard = Platform.select({
   ios: {
     shadowColor: '#0F172A',
@@ -82,3 +93,9 @@ export const radius = {
   lg: 20,
   xl: 24,
 };
+
+/**
+ * Total visual height of the custom curved tab bar (SVG region).
+ * Add to paddingBottom in scroll views inside tab screens.
+ */
+export const TAB_BAR_HEIGHT = 84;

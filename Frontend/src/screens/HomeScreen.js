@@ -17,7 +17,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { usePortalData } from '../hooks/usePortalData';
-import { colors, radius } from '../theme';
+import { colors, radius, TAB_BAR_HEIGHT } from '../theme';
 
 const shadowCard = Platform.select({
   ios: {
@@ -184,7 +184,7 @@ export default function HomeScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingBottom: insets.bottom + 24,
+            paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 24,
           },
         ]}
       >
@@ -417,7 +417,7 @@ function HighlightGrades({ grades = [] }) {
             <View
               style={[
                 styles.hlIconWrap,
-                { backgroundColor: 'rgba(59, 130, 246, 0.14)' },
+                { backgroundColor: 'rgba(27, 68, 128, 0.12)' },  // logo navy tint
               ]}
             >
               <MaterialCommunityIcons
@@ -461,7 +461,7 @@ function HighlightFeeBlue({ balanceDue = 0 }) {
           <View
             style={[
               styles.hlIconWrap,
-              { backgroundColor: 'rgba(37, 99, 235, 0.12)' },
+              { backgroundColor: 'rgba(27, 68, 128, 0.10)' },  // logo navy tint
             ]}
           >
             <Ionicons name="wallet-outline" size={18} color={colors.iconBlue} />
@@ -604,7 +604,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#E0E7FF',
+    backgroundColor: colors.brandNavyMuted,  // logo navy muted
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -639,7 +639,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: colors.iconBlue,
+    backgroundColor: colors.brandGold,        // logo gold ring — school badge
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
   viewProfilePillText: {
     fontSize: 12,
     fontWeight: '600',
-    color: colors.iconBlue,
+    color: colors.brandNavy,                  // logo navy
   },
   quickCard: {
     backgroundColor: colors.white,

@@ -1,8 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import HomeScreen from '../screens/HomeScreen';
 import AttendanceScreen from '../screens/AttendanceScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -14,68 +13,83 @@ import PerformanceScreen from '../screens/PerformanceScreen';
 import AuthScreen from '../screens/AuthScreen';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
+import CustomTabBar from './CustomTabBar';
 
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+/** Native stack: smooth push/pop, swipe-back on iOS, slide-from-right on Android, no white flash */
+const stackScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: colors.bg },
+  gestureEnabled: true,
+  fullScreenGestureEnabled: true,
+  ...(Platform.OS === 'android' ? { animation: 'slide_from_right' } : {}),
+};
+
+/** Bottom tabs: light cross-fade when switching main sections */
+const tabScreenOptions = {
+  headerShown: false,
+  animation: 'fade',
+  transitionSpec: {
+    animation: 'timing',
+    config: { duration: 280, useNativeDriver: true },
+  },
+};
+
+// ─── Overview stack ───────────────────────────────────────────────────────────
+// Keeps all "drill-down" screens reachable from Home via push navigation.
 function OverviewStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Home" component={HomeScreen} />
-      <Stack.Screen name="Attendance" component={AttendanceScreen} />
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen name="Home"        component={HomeScreen} />
+      <Stack.Screen name="Attendance"  component={AttendanceScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Examination" component={ExaminationScreen} />
-      <Stack.Screen name="Grades" component={GradesScreen} />
-      <Stack.Screen name="Timetable" component={TimetableScreen} />
+      <Stack.Screen name="Grades"      component={GradesScreen} />
+      <Stack.Screen name="Timetable"   component={TimetableScreen} />
     </Stack.Navigator>
   );
 }
 
+// ─── Fees stack ───────────────────────────────────────────────────────────────
 function FeesStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="FeesHome" component={FeesScreen} />
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen name="FeesHome"    component={FeesScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
     </Stack.Navigator>
   );
 }
 
+// ─── Attendance stack ─────────────────────────────────────────────────────────
+function AttendanceStack() {
+  return (
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen name="AttendanceMain" component={AttendanceScreen} />
+    </Stack.Navigator>
+  );
+}
+
+// ─── Main 5-tab navigator ─────────────────────────────────────────────────────
+// Tab order matters — index 2 is the center rounded "Fees" button:
+//   0: Overview  |  1: Attendance  |  2: Fees (center)  |  3: Examination  |  4: Performance
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.tabActive,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: {
-          backgroundColor: colors.white,
-          borderTopColor: colors.border,
-        },
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '600',
-        },
-        tabBarIcon: ({ color, size }) => {
-          const icon =
-            route.name === 'Overview'
-              ? 'home-outline'
-              : route.name === 'Examination'
-                ? 'calendar-outline'
-                : route.name === 'Fees'
-                  ? 'wallet-outline'
-                  : 'bar-chart-outline';
-          return <Ionicons name={icon} size={size} color={color} />;
-        },
-      })}
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={tabScreenOptions}
     >
-      <Tab.Screen name="Overview" component={OverviewStack} />
+      <Tab.Screen name="Overview"    component={OverviewStack} />
+      <Tab.Screen name="Attendance"  component={AttendanceStack} />
+      <Tab.Screen name="Fees"        component={FeesStack} />
       <Tab.Screen name="Examination" component={ExaminationScreen} />
-      <Tab.Screen name="Fees" component={FeesStack} />
       <Tab.Screen name="Performance" component={PerformanceScreen} />
     </Tab.Navigator>
   );
 }
 
+// ─── Root navigator ───────────────────────────────────────────────────────────
 export default function RootNavigator() {
   const { token, student, status } = useAuth();
 
@@ -96,8 +110,8 @@ export default function RootNavigator() {
         // Authenticated → show the main tabbed app
         <MainTabs />
       ) : (
-        // Not authenticated → show phone lookup + child selection
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        // Not authenticated → phone lookup + child selection
+        <Stack.Navigator screenOptions={stackScreenOptions}>
           <Stack.Screen name="Auth" component={AuthScreen} />
         </Stack.Navigator>
       )}

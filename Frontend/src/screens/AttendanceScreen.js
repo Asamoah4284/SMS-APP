@@ -13,24 +13,17 @@ import { useState } from 'react';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '../context/AuthContext';
 import { usePortalData } from '../hooks/usePortalData';
-import { colors, radius } from '../theme';
+import { colors, radius, TAB_BAR_HEIGHT } from '../theme';
 
-/** Weekly summary card surface */
-const WEEK_CARD_BG = colors.white;
-const WEEK_TEXT = '#0F172A';
-const WEEK_ICON_GREEN = '#14532D';
-const WEEK_FOOT_GREEN = '#15803D';
-const WEEK_DONUT_CENTER = '#166534';
-
-/** Lime → forest green, clockwise around the ring */
+/** Navy → gold ring segments (school brand), clockwise */
 const DONUT_SEGMENT_COLORS = [
-  '#BBF7D0',
-  '#86EFAC',
-  '#4ADE80',
-  '#34D399',
-  '#22C55E',
-  '#16A34A',
-  '#15803D',
+  '#E8EDF5',
+  '#D4DFF0',
+  '#B8CBE5',
+  '#8EA8CD',
+  '#5C7CAD',
+  '#1B4480',
+  '#C9A020',
 ];
 
 const DONUT_VIEW = 100;
@@ -140,7 +133,7 @@ export default function AttendanceScreen({ navigation }) {
   if (isLoading) {
     return (
       <View style={[styles.root, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.iconBlue} />
+        <ActivityIndicator size="large" color={colors.brandNavy} />
       </View>
     );
   }
@@ -149,23 +142,23 @@ export default function AttendanceScreen({ navigation }) {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerLeft}>
-          <Text style={styles.backChevron}>‹</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
           <Text style={styles.headerTitle}>Attendance</Text>
         </Pressable>
       </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0369A1" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandNavy} />
         }
       >
         {/* Student profile */}
         <View style={styles.profileRow}>
-          <View style={[styles.profileAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.iconBlueMuted }]}>
-            <Text style={{ fontSize: 24, fontWeight: '700', color: colors.iconBlue }}>
+          <View style={[styles.profileAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brandNavyMuted }]}>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: colors.brandNavy }}>
               {data?.student?.firstName?.[0] ?? '?'}{data?.student?.lastName?.[0] ?? ''}
             </Text>
           </View>
@@ -182,7 +175,7 @@ export default function AttendanceScreen({ navigation }) {
             <View style={styles.weekLeftCol}>
               <View style={styles.weekIconTitleRow}>
                 <View style={styles.weekIconCircle}>
-                  <MaterialCommunityIcons name="calendar-check" size={30} color={WEEK_ICON_GREEN} />
+                  <MaterialCommunityIcons name="calendar-check" size={28} color={colors.brandNavy} />
                 </View>
                 <View style={styles.weekTitleBlock}>
                   <Text style={styles.weekPct}>{rate}% Present</Text>
@@ -240,7 +233,7 @@ export default function AttendanceScreen({ navigation }) {
                               styles.barFill,
                               {
                                 height: Math.max(8, chartHeight * h * 0.94),
-                                backgroundColor: isPresent ? colors.success : colors.danger,
+                                backgroundColor: isPresent ? colors.brandGold : colors.danger,
                               },
                             ]}
                           />
@@ -263,7 +256,7 @@ export default function AttendanceScreen({ navigation }) {
 
           <View style={styles.monthLegendRow}>
             <View style={styles.legendChip}>
-              <View style={[styles.legendSwatch, { backgroundColor: colors.success }]} />
+              <View style={[styles.legendSwatch, { backgroundColor: colors.brandGold }]} />
               <Text style={styles.legendChipLabel}>Present</Text>
             </View>
             <View style={styles.legendChip}>
@@ -294,7 +287,7 @@ export default function AttendanceScreen({ navigation }) {
                   <View
                     style={[
                       styles.recentAccentBar,
-                      { backgroundColor: isPresent ? colors.success : colors.danger },
+                      { backgroundColor: isPresent ? colors.brandGold : colors.danger },
                     ]}
                   />
                   <View style={styles.recentRowInner}>
@@ -349,16 +342,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  backChevron: {
-    fontSize: 22,
-    color: colors.text,
-    fontWeight: '600',
-    marginTop: -2,
-  },
   headerTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.brandNavy,
   },
   headerAvatarWrap: {
     width: 40,
@@ -388,7 +375,6 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     resizeMode: 'cover',
-    backgroundColor: '#93C5FD',
     borderWidth: 2,
     borderColor: colors.white,
   },
@@ -396,7 +382,7 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 17,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.brandNavy,
     marginBottom: 4,
   },
   profileMeta: {
@@ -405,10 +391,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   weekCard: {
-    backgroundColor: WEEK_CARD_BG,
-    borderRadius: 0,
-    padding: 18,
+    backgroundColor: colors.cardBlue,
+    borderRadius: radius.md,
+    padding: 16,
     marginBottom: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
   },
   weekCardMain: {
     flexDirection: 'row',
@@ -428,8 +416,8 @@ const styles = StyleSheet.create({
   weekIconCircle: {
     width: 48,
     height: 48,
-    borderRadius: 0,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderRadius: 12,
+    backgroundColor: colors.brandNavyMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -441,21 +429,20 @@ const styles = StyleSheet.create({
   weekPct: {
     fontSize: 18,
     fontWeight: '800',
-    color: WEEK_TEXT,
+    color: colors.brandNavy,
     letterSpacing: -0.2,
   },
   weekSub: {
     fontSize: 13,
     fontWeight: '400',
-    color: WEEK_TEXT,
+    color: colors.textMuted,
     letterSpacing: -0.1,
     marginTop: 4,
-    opacity: 0.85,
   },
   weekFoot: {
     fontSize: 13,
     fontWeight: '600',
-    color: WEEK_FOOT_GREEN,
+    color: colors.brandGoldDark,
     marginTop: 14,
   },
   weekDonutWrap: {
@@ -468,8 +455,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 92,
     height: 92,
-    borderRadius: 0,
-    backgroundColor: 'rgba(187, 247, 208, 0.45)',
+    borderRadius: 46,
+    backgroundColor: 'rgba(27, 68, 128, 0.06)',
   },
   weekDonutCenter: {
     ...StyleSheet.absoluteFillObject,
@@ -479,20 +466,22 @@ const styles = StyleSheet.create({
   weekDonutPercent: {
     fontSize: 15,
     fontWeight: '800',
-    color: WEEK_DONUT_CENTER,
+    color: colors.brandNavy,
     letterSpacing: -0.3,
   },
   sectionTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.brandNavy,
     marginBottom: 12,
   },
   monthCard: {
     backgroundColor: colors.white,
-    borderRadius: 0,
+    borderRadius: radius.md,
     padding: 16,
     marginBottom: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
   },
   monthCardHeader: {
     flexDirection: 'row',
@@ -557,7 +546,7 @@ const styles = StyleSheet.create({
   monthStatValue: {
     fontSize: 32,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.brandNavy,
     letterSpacing: -1,
     lineHeight: 36,
   },
@@ -576,27 +565,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    backgroundColor: colors.yellowMuted,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 10,
     maxWidth: '100%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(201, 160, 32, 0.35)',
   },
   monthChipAbsent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    backgroundColor: colors.redMuted,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 10,
     maxWidth: '100%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(220, 38, 38, 0.2)',
   },
   monthChipDot: {
     width: 8,
     height: 8,
-    borderRadius: 0,
-    backgroundColor: colors.success,
+    borderRadius: 4,
+    backgroundColor: colors.brandGold,
   },
   monthChipDotAbsent: {
     backgroundColor: colors.danger,
@@ -655,13 +648,13 @@ const styles = StyleSheet.create({
   },
   barTrack: {
     flex: 1,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 0,
+    backgroundColor: colors.brandNavyMuted,
+    borderRadius: 6,
     justifyContent: 'flex-end',
     alignItems: 'center',
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(15, 23, 42, 0.04)',
+    borderColor: 'rgba(27, 68, 128, 0.12)',
   },
   barFill: {
     width: '76%',
@@ -695,7 +688,7 @@ const styles = StyleSheet.create({
   legendSwatch: {
     width: 10,
     height: 10,
-    borderRadius: 0,
+    borderRadius: 3,
   },
   legendChipLabel: {
     fontSize: 12,
@@ -714,12 +707,16 @@ const styles = StyleSheet.create({
   recentRowOuter: {
     flexDirection: 'row',
     alignItems: 'stretch',
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
   },
   recentRowTintPresent: {
-    backgroundColor: 'rgba(16, 185, 129, 0.07)',
+    backgroundColor: colors.yellowMuted,
   },
   recentRowTintAbsent: {
-    backgroundColor: 'rgba(239, 68, 68, 0.06)',
+    backgroundColor: colors.redMuted,
   },
   recentAccentBar: {
     width: 3,
@@ -750,7 +747,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   recentStatusPresent: {
-    color: colors.success,
+    color: colors.brandGoldDark,
   },
   recentStatusAbsent: {
     color: colors.danger,
@@ -775,7 +772,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   recentSubOnTime: {
-    color: 'rgba(16, 185, 129, 0.9)',
+    color: colors.brandGoldDark,
     fontWeight: '600',
   },
   recentSubAbsentNote: {

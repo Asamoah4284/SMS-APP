@@ -2,6 +2,7 @@
   "expo": {
     "name": "SMS-APP",
     "slug": "SMS-APP",
+    "scheme": "edutracksms",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -24,7 +25,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["./plugins/withAsyncStorageMaven.js"],
+    "plugins": [
+      "./plugins/withAsyncStorageMaven.js",
+      "expo-web-browser"
+    ],
     "extra": {
       "eas": {
         "projectId": "18f9d220-a029-4fce-b817-699675cf2e58"

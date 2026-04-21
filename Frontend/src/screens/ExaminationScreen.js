@@ -2,9 +2,38 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState } from 'react';
-import Svg, { Defs, LinearGradient, Line, Path, Rect, Stop, Circle } from 'react-native-svg';
+import Svg, {
+  Defs,
+  LinearGradient,
+  Line,
+  Path,
+  Rect,
+  Stop,
+  Circle,
+  Text as SvgText,
+} from 'react-native-svg';
 import { usePortalData, average, scoreToGrade } from '../hooks/usePortalData';
-import { colors } from '../theme';
+import { colors, radius, TAB_BAR_HEIGHT } from '../theme';
+
+/** Navy / gold / muted surfaces — matches Fees & Attendance */
+const SUBJECT_TINTS = [
+  colors.yellowMuted,
+  colors.brandNavyMuted,
+  colors.hlFeeBlueBg,
+  colors.quickTimeBg,
+  colors.iconBlueMuted,
+  '#F5F0E0',
+];
+
+/** Bar chart gradients (6 max) — brand spectrum, not rainbow */
+const BAR_GRADIENT_BASE = [
+  ['#1B4480', '#2A5BA8'],
+  ['#2A5BA8', '#3D6496'],
+  ['#C9A020', '#D4B038'],
+  ['#1B4480', '#C9A020'],
+  ['#5C7CAD', '#1B4480'],
+  ['#A07C10', '#C9A020'],
+];
 
 const SUBJECT_ICONS = {
   Mathematics: 'calculator-variant',
@@ -17,7 +46,6 @@ const SUBJECT_ICONS = {
   French: 'translate',
 };
 
-const SUBJECT_TINTS = ['#E0F2FE', '#DCFCE7', '#FFEDD5', '#EDE9FE', '#FEF3C7', '#FCE7F3'];
 const SCORE_LABELS = [
   { score: 80, label: 'Excellent' },
   { score: 70, label: 'Very Good' },
@@ -33,16 +61,214 @@ function getLabel(score) {
 
 function getGradeColor(grade) {
   if (!grade) return colors.textSoft;
-  if (['A1','B2','B3'].includes(grade)) return '#166534';
-  if (['C4','C5','C6'].includes(grade)) return '#92400E';
-  return '#991B1B';
+  if (['A1', 'B2', 'B3'].includes(grade)) return colors.brandNavy;
+  if (['C4', 'C5', 'C6'].includes(grade)) return colors.brandGoldDark;
+  return colors.danger;
+}
+
+const CHART_W = 300;
+/** Plot area: top pad for % labels, bottom for baseline */
+const CHART_H = 162;
+const PLOT_TOP = 22;
+const PLOT_BOTTOM = CHART_H - 12;
+const PLOT_H = PLOT_BOTTOM - PLOT_TOP;
+
+/**
+ * Renders the score distribution: gradient plot, dashed grid, bars with % labels, area + trend.
+ */
+function ScoreDistributionChart({ subjects }) {
+  const n = subjects.length;
+  const maxScore = 100;
+  const innerPad = 14;
+  const innerW = CHART_W - innerPad * 2;
+  const slot = n > 0 ? innerW / n : innerW;
+  const barWidth = Math.min(28, Math.max(18, slot * 0.55));
+
+  const getBarX = (i) => innerPad + i * slot + (slot - barWidth) / 2;
+  const barCenterX = (i) => getBarX(i) + barWidth / 2;
+
+  const scoreY = (score) => {
+    if (score == null) return PLOT_BOTTOM - 4;
+    const h = (score / maxScore) * PLOT_H * 0.94;
+    return PLOT_BOTTOM - h;
+  };
+
+  const pts = subjects.map((r, i) => {
+    const sc = r.totalScore;
+    const y = scoreY(sc);
+    return [barCenterX(i), y];
+  });
+
+  const trendD =
+    pts.length > 1
+      ? pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')
+      : '';
+
+  const areaD =
+    pts.length > 1
+      ? `${trendD} L ${pts[pts.length - 1][0]} ${PLOT_BOTTOM} L ${pts[0][0]} ${PLOT_BOTTOM} Z`
+      : '';
+
+  return (
+    <View style={styles.chartCard}>
+      <View style={styles.chartGoldAccent} />
+      <View style={styles.chartCardHeader}>
+        <View>
+          <Text style={styles.chartKicker}>By subject</Text>
+          <Text style={styles.chartHeadline}>Score distribution</Text>
+        </View>
+        <View style={styles.chartLegendMini}>
+          <View style={styles.chartLegendItem}>
+            <View style={[styles.chartLegendSwatch, { backgroundColor: colors.brandNavy }]} />
+            <Text style={styles.chartLegendTxt}>Bars</Text>
+          </View>
+          <View style={styles.chartLegendItem}>
+            <View style={[styles.chartLegendDot, { borderColor: colors.brandGold }]} />
+            <Text style={styles.chartLegendTxt}>Trend</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.chartInner}>
+        <View style={styles.chartY}>
+          {['100', '75', '50', '25'].map((t) => (
+            <Text key={t} style={styles.yLabel}>
+              {t}%
+            </Text>
+          ))}
+        </View>
+        <View style={styles.chartMain}>
+          <Svg width={CHART_W} height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`}>
+            <Defs>
+              <LinearGradient id="chartPlotBg" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
+                <Stop offset="1" stopColor="#E8EEF7" stopOpacity="1" />
+              </LinearGradient>
+              <LinearGradient id="trendAreaFill" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#1B4480" stopOpacity="0.14" />
+                <Stop offset="1" stopColor="#1B4480" stopOpacity="0.02" />
+              </LinearGradient>
+              {['gA', 'gB', 'gC', 'gD', 'gE', 'gF'].map((id, i) => {
+                const [top, bottom] = BAR_GRADIENT_BASE[i] ?? BAR_GRADIENT_BASE[0];
+                return (
+                  <LinearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor={top} stopOpacity="0.98" />
+                    <Stop offset="1" stopColor={bottom} stopOpacity="0.78" />
+                  </LinearGradient>
+                );
+              })}
+            </Defs>
+
+            <Rect
+              x={4}
+              y={PLOT_TOP - 2}
+              width={CHART_W - 8}
+              height={PLOT_BOTTOM - PLOT_TOP + 4}
+              rx={12}
+              fill="url(#chartPlotBg)"
+              stroke="rgba(27, 68, 128, 0.1)"
+              strokeWidth={1}
+            />
+
+            {[0.25, 0.5, 0.75].map((frac) => (
+              <Line
+                key={frac}
+                x1={8}
+                y1={PLOT_TOP + PLOT_H * frac}
+                x2={CHART_W - 8}
+                y2={PLOT_TOP + PLOT_H * frac}
+                stroke="rgba(27, 68, 128, 0.1)"
+                strokeWidth={1}
+                strokeDasharray="4 7"
+              />
+            ))}
+
+            <Line
+              x1={8}
+              y1={PLOT_BOTTOM}
+              x2={CHART_W - 8}
+              y2={PLOT_BOTTOM}
+              stroke="#C9A020"
+              strokeWidth={2}
+              strokeLinecap="round"
+              opacity={0.85}
+            />
+
+            {areaD.length > 8 && <Path d={areaD} fill="url(#trendAreaFill)" />}
+
+            {subjects.map((r, i) => {
+              const sc = r.totalScore;
+              const h =
+                sc != null ? Math.max(6, (sc / maxScore) * PLOT_H * 0.94) : 6;
+              const x = getBarX(i);
+              const y = PLOT_BOTTOM - h;
+              return (
+                <Rect
+                  key={i}
+                  x={x}
+                  y={y}
+                  width={barWidth}
+                  height={h}
+                  rx={7}
+                  ry={7}
+                  fill={`url(#g${['A', 'B', 'C', 'D', 'E', 'F'][i]})`}
+                />
+              );
+            })}
+
+            {subjects.map((r, i) => {
+              const sc = r.totalScore;
+              if (sc == null) return null;
+              const y = scoreY(sc);
+              return (
+                <SvgText
+                  key={`lbl-${i}`}
+                  x={barCenterX(i)}
+                  y={Math.max(PLOT_TOP + 11, y - 5)}
+                  fontSize={10}
+                  fontWeight="700"
+                  fill="#1B4480"
+                  textAnchor="middle"
+                >
+                  {`${Math.round(sc)}%`}
+                </SvgText>
+              );
+            })}
+
+            {trendD.length > 8 && (
+              <Path
+                d={trendD}
+                stroke="#1B4480"
+                strokeWidth={2.5}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+
+            {pts.map((p, i) => (
+              <Circle key={`pt-${i}`} cx={p[0]} cy={p[1]} r={4} fill="#C9A020" stroke="#FFFFFF" strokeWidth={1.5} />
+            ))}
+          </Svg>
+
+          <View style={styles.chartX}>
+            {subjects.map((r, i) => (
+              <Text key={i} style={styles.xLabel} numberOfLines={1}>
+                {r.subject.split(' ')[0]}
+              </Text>
+            ))}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function SubjectTile({ title, score, grade, tint, icon }) {
   return (
     <View style={[styles.subjectTile, { flex: 1 }]}>
       <View style={styles.subjectTileTop}>
-        <MaterialCommunityIcons name={icon || 'book-outline'} size={24} color="#334155" />
+        <MaterialCommunityIcons name={icon || 'book-outline'} size={20} color={colors.brandNavy} />
         <Text style={styles.subjectTileTitle} numberOfLines={1}>{title}</Text>
       </View>
       <Text style={[styles.subjectTileScore, { color: getGradeColor(grade) }]}>
@@ -72,7 +298,7 @@ export default function ExaminationScreen({ navigation }) {
   if (isLoading) {
     return (
       <View style={[styles.root, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.iconBlue} />
+        <ActivityIndicator size="large" color={colors.brandNavy} />
       </View>
     );
   }
@@ -86,12 +312,7 @@ export default function ExaminationScreen({ navigation }) {
   // Up to 3 subjects for tiles
   const subjectTiles = results.slice(0, 3);
 
-  // Bar chart heights (up to 6 subjects for the chart)
   const chartSubjects = results.slice(0, 6);
-  const barWidth = 26;
-  const barXPositions = [26, 74, 122, 170, 218, 266];
-  const maxScore = 100;
-  const chartH = 130;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -101,21 +322,21 @@ export default function ExaminationScreen({ navigation }) {
           hitSlop={12}
           style={styles.headerLeft}
         >
-          <Ionicons name="chevron-back" size={22} color={colors.text} />
+          <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
           <Text style={styles.headerTitle}>Examination</Text>
         </Pressable>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 18 }}
+        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 18 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0369A1" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandNavy} />
         }
       >
         {results.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Ionicons name="calendar-outline" size={40} color={colors.textSoft} />
+            <Ionicons name="document-text-outline" size={36} color={colors.brandGold} />
             <Text style={styles.emptyTitle}>No results yet</Text>
             <Text style={styles.emptyBody}>Examination results will appear here once they are published by the school.</Text>
           </View>
@@ -126,7 +347,7 @@ export default function ExaminationScreen({ navigation }) {
               <View style={[styles.summaryCard, styles.summaryCardWarm]}>
                 <View style={styles.summaryTop}>
                   <View style={styles.summaryIconWarm}>
-                    <MaterialCommunityIcons name="calendar-check" size={28} color="#92400E" />
+                    <MaterialCommunityIcons name="calendar-check" size={24} color={colors.brandNavy} />
                   </View>
                   <Text style={styles.summaryTitle}>Most Recent{'\n'}Result</Text>
                 </View>
@@ -142,7 +363,7 @@ export default function ExaminationScreen({ navigation }) {
               <View style={[styles.summaryCard, styles.summaryCardCool]}>
                 <View style={styles.summaryTop}>
                   <View style={styles.summaryIconCool}>
-                    <Ionicons name="checkmark" size={24} color={colors.white} />
+                    <Ionicons name="school-outline" size={22} color={colors.white} />
                   </View>
                   <Text style={styles.summaryTitle}>Overall{'\n'}Performance</Text>
                 </View>
@@ -157,79 +378,7 @@ export default function ExaminationScreen({ navigation }) {
               </View>
             </View>
 
-            {/* Score distribution chart */}
-            {chartSubjects.length > 0 && (
-              <>
-                <Text style={styles.sectionTitle}>Score Distribution</Text>
-                <View style={styles.chartCard}>
-                  <View style={styles.chartInner}>
-                    <View style={styles.chartY}>
-                      {['100', '75', '50', '25'].map((t) => (
-                        <Text key={t} style={styles.yLabel}>{t}%</Text>
-                      ))}
-                    </View>
-                    <View style={styles.chartMain}>
-                      <Svg width={300} height={chartH} viewBox={`0 0 300 ${chartH}`}>
-                        <Defs>
-                          {['gA','gB','gC','gD','gE','gF'].map((id, i) => {
-                            const colors2 = ['#3B82F6','#22C55E','#F59E0B','#EF4444','#8B5CF6','#EC4899'];
-                            const c = colors2[i];
-                            return (
-                              <LinearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                                <Stop offset="0" stopColor={c} stopOpacity="0.95" />
-                                <Stop offset="1" stopColor={c} stopOpacity="0.55" />
-                              </LinearGradient>
-                            );
-                          })}
-                        </Defs>
-                        {[0.25, 0.5, 0.75].map((frac) => (
-                          <Line key={frac} x1="0" y1={chartH * frac} x2="300" y2={chartH * frac}
-                            stroke="rgba(15, 23, 42, 0.06)" />
-                        ))}
-                        {chartSubjects.map((r, i) => {
-                          const h = r.totalScore != null ? (r.totalScore / maxScore) * chartH * 0.92 : 4;
-                          const x = barXPositions[i] ?? 26 + i * 48;
-                          return (
-                            <Rect key={i} x={x} y={chartH - h} width={barWidth} height={Math.max(4, h)}
-                              rx="4" fill={`url(#g${['A','B','C','D','E','F'][i]})`} />
-                          );
-                        })}
-                        {/* Trend line */}
-                        {chartSubjects.length > 1 && (() => {
-                          const points = chartSubjects.map((r, i) => {
-                            const x = (barXPositions[i] ?? 26 + i * 48) + barWidth / 2;
-                            const y = r.totalScore != null ? chartH - (r.totalScore / maxScore) * chartH * 0.92 : chartH - 4;
-                            return `${x},${y}`;
-                          }).join(' ');
-                          // Simple polyline path
-                          const pts = chartSubjects.map((r, i) => {
-                            const x = (barXPositions[i] ?? 26 + i * 48) + barWidth / 2;
-                            const y = r.totalScore != null ? chartH - (r.totalScore / maxScore) * chartH * 0.92 : chartH - 4;
-                            return [x, y];
-                          });
-                          const d = pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ');
-                          return (
-                            <>
-                              <Path d={d} stroke="#2563EB" strokeWidth="2.5" fill="none" />
-                              {pts.map((p, i) => (
-                                <Circle key={i} cx={p[0]} cy={p[1]} r="4" fill="#2563EB" opacity="0.9" />
-                              ))}
-                            </>
-                          );
-                        })()}
-                      </Svg>
-                      <View style={styles.chartX}>
-                        {chartSubjects.map((r, i) => (
-                          <Text key={i} style={styles.xLabel} numberOfLines={1}>
-                            {r.subject.split(' ')[0]}
-                          </Text>
-                        ))}
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              </>
-            )}
+            {chartSubjects.length > 0 && <ScoreDistributionChart subjects={chartSubjects} />}
 
             {/* Subject tiles */}
             <Text style={styles.sectionTitle}>Subject Performance</Text>
@@ -258,8 +407,8 @@ export default function ExaminationScreen({ navigation }) {
                       <Text style={[styles.resultScore, { color: getGradeColor(r.grade) }]}>
                         {r.totalScore != null ? r.totalScore.toFixed(0) : '—'}
                       </Text>
-                      <View style={[styles.gradeBadge, { marginLeft: 6 }]}>
-                        <Text style={[styles.gradeBadgeText, { color: getGradeColor(r.grade) }]}>
+                      <View style={[styles.resultGradeBadge, { marginLeft: 6 }]}>
+                        <Text style={[styles.resultGradeBadgeText, { color: getGradeColor(r.grade) }]}>
                           {r.grade ?? '—'}
                         </Text>
                       </View>
@@ -279,74 +428,193 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 18 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: colors.brandNavy },
 
   emptyCard: {
-    backgroundColor: colors.white, borderRadius: 18, padding: 28,
-    alignItems: 'center', gap: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderLight,
+    backgroundColor: colors.cardBlue,
+    borderRadius: radius.md,
+    padding: 24,
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
     marginTop: 12,
   },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: colors.brandNavy },
   emptyBody: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
 
   summaryRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
   summaryCard: {
-    flex: 1, borderRadius: 18, padding: 14,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderLight, overflow: 'hidden',
+    flex: 1,
+    borderRadius: radius.md,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+    overflow: 'hidden',
   },
-  summaryCardWarm: { backgroundColor: '#FFF7ED' },
-  summaryCardCool: { backgroundColor: '#ECFEFF' },
+  summaryCardWarm: {
+    backgroundColor: colors.yellowMuted,
+    borderColor: 'rgba(201, 160, 32, 0.28)',
+  },
+  summaryCardCool: {
+    backgroundColor: colors.hlFeeBlueBg,
+    borderColor: colors.brandNavyMuted,
+  },
   summaryTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   summaryIconWarm: {
-    width: 46, height: 46, borderRadius: 14,
-    backgroundColor: 'rgba(245, 158, 11, 0.18)', alignItems: 'center', justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(201, 160, 32, 0.4)',
   },
   summaryIconCool: {
-    width: 46, height: 46, borderRadius: 23,
-    backgroundColor: '#2F9E74', alignItems: 'center', justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.brandNavy,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  summaryTitle: { fontSize: 12, fontWeight: '800', color: colors.text, lineHeight: 15 },
+  summaryTitle: { fontSize: 12, fontWeight: '800', color: colors.brandNavy, lineHeight: 15 },
   summaryMidTitle: { marginTop: 14, fontSize: 12, fontWeight: '800', color: colors.text },
-  summaryPctWarm: { marginTop: 6, fontSize: 28, fontWeight: '900', color: '#14532D' },
-  summaryPctCool: { marginTop: 18, fontSize: 28, fontWeight: '900', color: '#14532D' },
+  summaryPctWarm: { marginTop: 6, fontSize: 28, fontWeight: '900', color: colors.brandNavy },
+  summaryPctCool: { marginTop: 18, fontSize: 28, fontWeight: '900', color: colors.brandNavy },
   summaryFoot: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.textMuted },
   gradeBadgeRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   gradeBadge: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
-    backgroundColor: 'rgba(34, 197, 94, 0.16)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: colors.yellowMuted,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(201, 160, 32, 0.45)',
   },
-  gradeBadgeText: { fontSize: 11, fontWeight: '900', color: '#166634' },
+  gradeBadgeText: { fontSize: 11, fontWeight: '900', color: colors.brandNavy },
 
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginTop: 6, marginBottom: 10 },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.brandNavy, marginTop: 6, marginBottom: 10 },
   chartCard: {
-    backgroundColor: colors.white, borderRadius: 18, padding: 12,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderLight, marginBottom: 14,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 14,
+    marginBottom: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+    overflow: 'hidden',
   },
-  chartInner: { flexDirection: 'row' },
-  chartY: { width: 36, justifyContent: 'space-between', paddingTop: 4, paddingBottom: 24 },
-  yLabel: { fontSize: 9, fontWeight: '600', color: colors.textSoft },
+  chartGoldAccent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 3,
+    backgroundColor: colors.brandGold,
+  },
+  chartCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingTop: 4,
+    gap: 6,
+  },
+  chartKicker: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brandGoldDark,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  chartHeadline: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.brandNavy,
+    letterSpacing: -0.3,
+    marginTop: 2,
+  },
+  chartLegendMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 4,
+  },
+  chartLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  chartLegendSwatch: {
+    width: 10,
+    height: 8,
+    borderRadius: 2,
+  },
+  chartLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    backgroundColor: 'transparent',
+  },
+  chartLegendTxt: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  chartInner: { flexDirection: 'row', alignItems: 'flex-start' },
+  chartY: { width: 38, height: 162, justifyContent: 'space-between', paddingTop: 2, paddingBottom: 2 },
+  yLabel: { fontSize: 9, fontWeight: '700', color: colors.textSoft, fontVariant: ['tabular-nums'] },
   chartMain: { flex: 1 },
-  chartX: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 4, marginTop: 4 },
-  xLabel: { fontSize: 9, fontWeight: '700', color: colors.textMuted, flex: 1, textAlign: 'center' },
+  chartX: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    marginTop: 6,
+  },
+  xLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.brandNavy,
+    flex: 1,
+    textAlign: 'center',
+    opacity: 0.85,
+  },
 
   subjectTiles: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
   subjectTile: {
-    minWidth: '30%', backgroundColor: colors.white, borderRadius: 18, padding: 12,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderLight,
+    minWidth: '30%',
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
   },
   subjectTileTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  subjectTileTitle: { fontSize: 12, fontWeight: '800', color: colors.text, flex: 1 },
+  subjectTileTitle: { fontSize: 12, fontWeight: '800', color: colors.brandNavy, flex: 1 },
   subjectTileScore: { marginTop: 8, fontSize: 20, fontWeight: '900' },
   subjectTilePill: { marginTop: 10, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
-  subjectTilePillText: { fontSize: 11, fontWeight: '800', color: '#334155' },
+  subjectTilePillText: { fontSize: 11, fontWeight: '800', color: colors.brandNavy },
 
   resultsCard: {
-    backgroundColor: colors.white, borderRadius: 18, overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderLight, marginBottom: 14,
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+    marginBottom: 14,
   },
   resultRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 },
   resultRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  resultSubject: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.text },
+  resultSubject: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.brandNavy },
   resultTerm: { fontSize: 11, color: colors.textSoft, marginRight: 10 },
   resultScore: { fontSize: 14, fontWeight: '800' },
+  resultGradeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.brandNavyMuted,
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  resultGradeBadgeText: { fontSize: 11, fontWeight: '800' },
 });
