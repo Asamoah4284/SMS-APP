@@ -1,6 +1,7 @@
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,10 +12,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Circle, Path } from 'react-native-svg';
-import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import { WebView } from 'react-native-webview';
 import { usePortalData } from '../hooks/usePortalData';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../config/api';
@@ -110,10 +111,20 @@ export default function FeesScreen({ navigation }) {
 
   const [refreshing, setRefreshing] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [paymentResult, setPaymentResult] = useState(null);
+  const [checkoutVisible, setCheckoutVisible] = useState(false);
+  const [checkoutUrl, setCheckoutUrl] = useState('');
+  const [checkoutCallbackUrl, setCheckoutCallbackUrl] = useState('');
+  const [checkoutReference, setCheckoutReference] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutNotice, setCheckoutNotice] = useState('');
   /** GH₵ amount parent wants to pay (capped at selected fee lines server-side) */
   const [amountToPay, setAmountToPay] = useState('');
   /** Fee structure IDs included in this payment (school fees, feeding, other, etc.) */
   const [selectedFeeStructureIds, setSelectedFeeStructureIds] = useState([]);
+  const checkoutReferenceRef = useRef('');
+  const checkoutFinalizedRef = useRef(false);
+  const checkoutPollingRef = useRef(false);
 
   const fees = data?.fees;
   const lineItems = Array.isArray(fees?.lineItems) ? fees.lineItems : [];
@@ -203,6 +214,157 @@ export default function FeesScreen({ navigation }) {
     }
   };
 
+  const closePaymentResult = () => {
+    setPaymentResult(null);
+  };
+
+  const resetCheckout = useCallback(() => {
+    setCheckoutVisible(false);
+    setCheckoutUrl('');
+    setCheckoutCallbackUrl('');
+    setCheckoutReference('');
+    setCheckoutLoading(false);
+    setCheckoutNotice('');
+    checkoutReferenceRef.current = '';
+  }, []);
+
+  const completeCheckout = useCallback(async ({ title, message, tone }) => {
+    checkoutFinalizedRef.current = true;
+    resetCheckout();
+    setPaying(false);
+    setPaymentResult({
+      tone,
+      title,
+      message,
+    });
+  }, [resetCheckout]);
+
+  const inspectPaystackPayment = useCallback(async (reference, { showPendingNotice = false } = {}) => {
+    if (!reference || checkoutFinalizedRef.current || checkoutPollingRef.current) {
+      return 'SKIP';
+    }
+
+    checkoutPollingRef.current = true;
+    try {
+      const verify = await apiFetch(`/portal/paystack/verify/${encodeURIComponent(reference)}`, token);
+      await refetch();
+
+      if (verify.status === 'SUCCESS') {
+        await completeCheckout({
+          tone: 'success',
+          title: 'Payment successful',
+          message: 'The payment has been confirmed and applied to your ward’s fee balance.',
+        });
+        return 'SUCCESS';
+      }
+
+      if (verify.status === 'FAILED') {
+        await completeCheckout({
+          tone: 'error',
+          title: 'Payment failed',
+          message: 'Paystack marked this checkout as failed. No payment was applied.',
+        });
+        return 'FAILED';
+      }
+
+      if (showPendingNotice) {
+        setCheckoutNotice('Payment received. We are confirming it now...');
+      }
+
+      return 'PENDING';
+    } finally {
+      checkoutPollingRef.current = false;
+    }
+  }, [token, refetch, completeCheckout]);
+
+  useEffect(() => {
+    if (!checkoutVisible || !checkoutReferenceRef.current || checkoutFinalizedRef.current) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      void inspectPaystackPayment(checkoutReferenceRef.current);
+    }, 2500);
+
+    return () => clearInterval(intervalId);
+  }, [checkoutVisible, inspectPaystackPayment]);
+
+  const handleCheckoutReturn = async (returnUrl) => {
+    const reference = checkoutReferenceRef.current;
+    if (!reference) {
+      resetCheckout();
+      setPaying(false);
+      return;
+    }
+
+    try {
+      const parsed = Linking.parse(returnUrl || '');
+      const status = String(parsed.queryParams?.status || '').toLowerCase();
+
+      if (status === 'cancelled' || status === 'failed') {
+        await completeCheckout({
+          tone: status === 'failed' ? 'error' : 'cancel',
+          title: status === 'failed' ? 'Payment failed' : 'Payment cancelled',
+          message:
+            status === 'failed'
+              ? 'The checkout was not completed. No payment was applied.'
+              : 'No charge was made.',
+        });
+        return;
+      }
+
+      const result = await inspectPaystackPayment(reference, { showPendingNotice: true });
+      if (result === 'PENDING') {
+        setCheckoutLoading(false);
+      }
+    } catch (error) {
+      await refetch();
+      await completeCheckout({
+        tone: 'error',
+        title: 'Check balance',
+        message:
+          error?.message ||
+          'We could not confirm the payment immediately. Pull down to refresh — if money left your account, the school record usually updates within a minute.',
+      });
+    }
+  };
+
+  const closeCheckout = async () => {
+    const reference = checkoutReferenceRef.current;
+    if (!reference) {
+      resetCheckout();
+      setPaying(false);
+      return;
+    }
+
+    const result = await inspectPaystackPayment(reference, { showPendingNotice: true });
+    if (result === 'SUCCESS' || result === 'FAILED') {
+      return;
+    }
+
+    Alert.alert(
+      'Payment still confirming',
+      'Paystack has not confirmed this payment yet. Keep this screen open a little longer or close it now and come back to refresh the balance later.',
+      [
+        { text: 'Keep waiting', style: 'cancel' },
+        {
+          text: 'Close anyway',
+          style: 'destructive',
+          onPress: () => {
+            resetCheckout();
+            setPaying(false);
+            setPaymentResult({
+              tone: 'pending',
+              title: 'Payment confirmation pending',
+              message:
+                'We have not marked this as cancelled because Paystack has not finished confirming it yet. Pull down to refresh the balance shortly.',
+            });
+          },
+        },
+      ]
+    );
+  };
+
   const toggleFeeLine = (feeStructureId) => {
     setSelectedFeeStructureIds((prev) =>
       prev.includes(feeStructureId)
@@ -240,9 +402,10 @@ export default function FeesScreen({ navigation }) {
     }
 
     setPaying(true);
-    let reference = '';
     try {
       const callbackUrl = Linking.createURL('paystack');
+      checkoutFinalizedRef.current = false;
+      checkoutReferenceRef.current = '';
       const payload = {
         studentId: student.studentId,
         amount: Math.round(parsed * 100) / 100,
@@ -255,37 +418,16 @@ export default function FeesScreen({ navigation }) {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      reference = init.reference;
-
-      const browserResult = await WebBrowser.openAuthSessionAsync(init.authorizationUrl, callbackUrl);
-
-      if (browserResult.type === 'success' || browserResult.type === 'dismiss') {
-        try {
-          const verify = await apiFetch(`/portal/paystack/verify/${encodeURIComponent(reference)}`, token);
-          await refetch();
-          if (verify.status === 'SUCCESS') {
-            Alert.alert('Payment successful', 'The amount has been applied to your ward’s fee balance.');
-          } else {
-            Alert.alert(
-              'Payment status',
-              'If you finished paying in the browser, balances may take a moment to update. Pull down to refresh, or try again shortly.'
-            );
-          }
-        } catch (verifyErr) {
-          await refetch();
-          Alert.alert(
-            'Check balance',
-            verifyErr?.message ||
-              'We could not confirm the payment immediately. Pull down to refresh — if money left your account, the school record usually updates within a minute.'
-          );
-        }
-      } else if (browserResult.type === 'cancel') {
-        Alert.alert('Payment cancelled', 'No charge was made.');
-      }
+      checkoutReferenceRef.current = init.reference;
+      setCheckoutReference(init.reference);
+      setCheckoutCallbackUrl(callbackUrl);
+      setCheckoutUrl(init.authorizationUrl);
+      setCheckoutLoading(true);
+      setCheckoutNotice('Complete the payment below. We will close this screen automatically when it is confirmed.');
+      setCheckoutVisible(true);
     } catch (e) {
-      Alert.alert('Payment', e?.message || 'Could not start or complete payment.');
-    } finally {
       setPaying(false);
+      Alert.alert('Payment', e?.message || 'Could not start or complete payment.');
     }
   };
 
@@ -456,6 +598,9 @@ export default function FeesScreen({ navigation }) {
                 </>
               )}
             </Pressable>
+              <Text style={styles.payReturnHint}>
+              Payment opens inside the app and returns here automatically so we can confirm it.
+              </Text>
           </View>
         )}
 
@@ -486,6 +631,105 @@ export default function FeesScreen({ navigation }) {
           </View>
         )}
       </ScrollView>
+
+        <Modal visible={checkoutVisible} animationType="slide" onRequestClose={closeCheckout}>
+          <View style={styles.checkoutShell}>
+            <View style={styles.checkoutHeader}>
+              <View style={styles.checkoutHeaderLeft}>
+                <View style={styles.checkoutBadge}>
+                  <Ionicons name="card-outline" size={18} color={colors.brandNavy} />
+                </View>
+                <View>
+                  <Text style={styles.checkoutTitle}>Secure Paystack Checkout</Text>
+                  <Text style={styles.checkoutSubtitle}>Stay here until the payment is confirmed.</Text>
+                </View>
+              </View>
+              <Pressable onPress={closeCheckout} hitSlop={10} style={styles.checkoutClose}>
+                <Ionicons name="close" size={22} color={colors.brandNavy} />
+              </Pressable>
+            </View>
+
+            <View style={styles.checkoutBody}>
+              {!!checkoutNotice && <Text style={styles.checkoutNotice}>{checkoutNotice}</Text>}
+              {checkoutLoading && (
+                <View style={styles.checkoutLoader}>
+                  <ActivityIndicator size="large" color={colors.brandNavy} />
+                  <Text style={styles.checkoutLoaderText}>Opening payment page...</Text>
+                </View>
+              )}
+              {!!checkoutUrl && (
+                <WebView
+                  style={styles.checkoutWebView}
+                  source={{ uri: checkoutUrl }}
+                  originWhitelist={['*']}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  startInLoadingState
+                  onLoadStart={() => setCheckoutLoading(true)}
+                  onLoadEnd={() => setCheckoutLoading(false)}
+                  onError={(event) => {
+                    setCheckoutLoading(false);
+                    setPaymentResult({
+                      tone: 'error',
+                      title: 'Checkout error',
+                      message:
+                        event?.nativeEvent?.description ||
+                        'We could not open the Paystack checkout page. Please try again.',
+                    });
+                    resetCheckout();
+                    setPaying(false);
+                  }}
+                  onShouldStartLoadWithRequest={(request) => {
+                    const url = request.url || '';
+                    if (checkoutCallbackUrl && url.startsWith(checkoutCallbackUrl)) {
+                      void handleCheckoutReturn(url);
+                      return false;
+                    }
+                    return true;
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
+
+      <Modal visible={!!paymentResult} transparent animationType="fade" onRequestClose={closePaymentResult}>
+        <View style={styles.resultOverlay}>
+          <View style={styles.resultCard}>
+            <View
+              style={[
+                styles.resultIconWrap,
+                paymentResult?.tone === 'success'
+                  ? styles.resultIconSuccess
+                  : paymentResult?.tone === 'pending'
+                  ? styles.resultIconPending
+                  : paymentResult?.tone === 'cancel'
+                  ? styles.resultIconCancel
+                  : styles.resultIconError,
+              ]}
+            >
+              <Ionicons
+                name={
+                  paymentResult?.tone === 'success'
+                    ? 'checkmark'
+                    : paymentResult?.tone === 'pending'
+                    ? 'time'
+                    : paymentResult?.tone === 'cancel'
+                    ? 'close'
+                    : 'alert-circle'
+                }
+                size={28}
+                color="#fff"
+              />
+            </View>
+            <Text style={styles.resultTitle}>{paymentResult?.title}</Text>
+            <Text style={styles.resultBody}>{paymentResult?.message}</Text>
+            <Pressable style={styles.resultBtn} onPress={closePaymentResult}>
+              <Text style={styles.resultBtnText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -565,6 +809,12 @@ const styles = StyleSheet.create({
   },
   payBtnDisabled: { opacity: 0.7 },
   payBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  payReturnHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    lineHeight: 15,
+    marginTop: 2,
+  },
 
   linesCard: {
     backgroundColor: colors.white,
@@ -632,4 +882,119 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 15, fontWeight: '700', color: colors.brandNavy },
   emptyBody: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
+
+  checkoutShell: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    paddingTop: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  checkoutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  checkoutHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  checkoutBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardBlue,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+  },
+  checkoutTitle: { fontSize: 16, fontWeight: '800', color: colors.brandNavy },
+  checkoutSubtitle: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  checkoutClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardBlue,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+  },
+  checkoutBody: {
+    flex: 1,
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+  },
+  checkoutWebView: { flex: 1 },
+  checkoutNotice: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    zIndex: 3,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.brandNavy,
+    fontSize: 12,
+    fontWeight: '700',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+  },
+  checkoutLoader: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 2,
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  checkoutLoaderText: { fontSize: 13, fontWeight: '700', color: colors.brandNavy },
+
+  resultOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(8, 20, 40, 0.52)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  resultCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: 20,
+    alignItems: 'center',
+  },
+  resultIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  resultIconSuccess: { backgroundColor: colors.green },
+  resultIconPending: { backgroundColor: colors.brandGoldDark },
+  resultIconCancel: { backgroundColor: colors.textSoft },
+  resultIconError: { backgroundColor: colors.red },
+  resultTitle: { fontSize: 18, fontWeight: '800', color: colors.brandNavy, textAlign: 'center' },
+  resultBody: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18, marginTop: 8 },
+  resultBtn: {
+    marginTop: 18,
+    backgroundColor: colors.brandNavy,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  resultBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
 });
