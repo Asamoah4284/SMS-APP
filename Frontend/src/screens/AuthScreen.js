@@ -244,7 +244,7 @@ export default function AuthScreen() {
               <Ionicons name="school-outline" size={32} color={colors.iconBlue} />
             )}
           </View>
-          <Text style={styles.appName}>{school?.name || 'School Portal'}</Text>
+          <Text style={styles.appName}>Deacons Academy Foundation</Text>
           <Text style={styles.portalText}>Parent Portal</Text>
         </Animated.View>
 
