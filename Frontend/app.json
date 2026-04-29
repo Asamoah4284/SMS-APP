@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "SMS-APP",
+    "name": "Dase App",
     "slug": "SMS-APP",
     "scheme": "edutracksms",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
@@ -16,7 +16,8 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.smsapp.mobile",
+      "package": "com.asarion.daseapp",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/logo.png"
