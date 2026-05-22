@@ -1,6 +1,6 @@
 // Base URL of your EduTrack backend
 // Change this to your actual server address (LAN IP for physical device, localhost for emulator)
-export const API_BASE = 'https://sms-app-eapr.onrender.com/api/v1';
+export const API_BASE = 'https://api.deaconsfoundations.com/api/v1';
 
 /**
  * Thin wrapper around fetch that attaches the parent token and
