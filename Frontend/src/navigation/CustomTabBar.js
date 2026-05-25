@@ -36,7 +36,7 @@ const TAB_MAP = {
   Fees:        { icon: 'wallet-outline',            activeIcon: 'wallet',            family: 'ion', label: 'Fees', isCenter: true },
   Attendance:  { icon: 'calendar-check-outline',   activeIcon: 'calendar-check',    family: 'mci', label: 'Attend' },
   Examination: { icon: 'document-text-outline',    activeIcon: 'document-text',     family: 'ion', label: 'Exams' },
-  Performance: { icon: 'bar-chart-outline',        activeIcon: 'bar-chart',         family: 'ion', label: 'Results' },
+  Profile:     { icon: 'person-outline',           activeIcon: 'person',            family: 'ion', label: 'Profile' },
 };
 
 // ─── SVG path: white bar with smooth curved notch at center ──────────────────

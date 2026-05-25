@@ -1,5 +1,7 @@
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,7 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useRef, useState } from 'react';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '../context/AuthContext';
 import { usePortalData } from '../hooks/usePortalData';
@@ -47,52 +50,263 @@ function donutSegmentPath(startDeg, endDeg) {
   return `M ${xo1} ${yo1} A ${DONUT_OUTER} ${DONUT_OUTER} 0 ${largeArc} 1 ${xo2} ${yo2} L ${xi1} ${yi1} A ${DONUT_INNER} ${DONUT_INNER} 0 ${largeArc} 0 ${xi2} ${yi2} Z`;
 }
 
-/** 7 equal segments, full ring (100% week) */
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+/** 7 equal segments, full ring (100% week) — animates in on focus */
 function WeekDonutGauge({ percent = 100 }) {
   const seg = 360 / 7;
   const gap = 0.8;
-  const paths = [];
-  for (let i = 0; i < 7; i += 1) {
-    const start = -90 + i * seg + gap / 2;
-    const end = -90 + (i + 1) * seg - gap / 2;
-    paths.push(
-      <Path
-        key={i}
-        d={donutSegmentPath(start, end)}
-        fill={DONUT_SEGMENT_COLORS[i]}
-      />,
-    );
-  }
+
+  const segmentAnims = useRef(
+    Array.from({ length: 7 }, () => new Animated.Value(0))
+  ).current;
+  const wrapAnim = useRef(new Animated.Value(0)).current;
+  const counterAnim = useRef(new Animated.Value(0)).current;
+  const [displayPercent, setDisplayPercent] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      segmentAnims.forEach((a) => a.setValue(0));
+      wrapAnim.setValue(0);
+      counterAnim.setValue(0);
+      setDisplayPercent(0);
+
+      const id = counterAnim.addListener(({ value }) => {
+        setDisplayPercent(Math.round(value));
+      });
+
+      Animated.parallel([
+        Animated.spring(wrapAnim, {
+          toValue: 1,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+        Animated.stagger(
+          70,
+          segmentAnims.map((a) =>
+            Animated.timing(a, {
+              toValue: 1,
+              duration: 320,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            })
+          )
+        ),
+        Animated.timing(counterAnim, {
+          toValue: percent,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+      ]).start();
+
+      return () => counterAnim.removeListener(id);
+    }, [counterAnim, percent, segmentAnims, wrapAnim])
+  );
+
+  const wrapScale = wrapAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.78, 1],
+  });
+
   return (
-    <View style={styles.weekDonutWrap}>
+    <Animated.View
+      style={[
+        styles.weekDonutWrap,
+        { opacity: wrapAnim, transform: [{ scale: wrapScale }] },
+      ]}
+    >
       <View style={styles.weekDonutGlow} />
       <Svg
         width={DONUT_VIEW}
         height={DONUT_VIEW}
         viewBox={`0 0 ${DONUT_VIEW} ${DONUT_VIEW}`}
       >
-        {paths}
+        {Array.from({ length: 7 }).map((_, i) => {
+          const start = -90 + i * seg + gap / 2;
+          const end = -90 + (i + 1) * seg - gap / 2;
+          return (
+            <AnimatedPath
+              key={i}
+              d={donutSegmentPath(start, end)}
+              fill={DONUT_SEGMENT_COLORS[i]}
+              opacity={segmentAnims[i]}
+            />
+          );
+        })}
       </Svg>
       <View style={styles.weekDonutCenter} pointerEvents="none">
-        <Text style={styles.weekDonutPercent}>{percent}%</Text>
+        <Text style={styles.weekDonutPercent}>{displayPercent}%</Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const STUDENT_AVATAR_URI =
   'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=200&q=80';
 
-const STATUS_BAR_H = { PRESENT: 0.82, LATE: 0.55, EXCUSED: 0.45, ABSENT: 0.2 };
-const STATUS_PRESENT = { PRESENT: true, LATE: true, EXCUSED: false, ABSENT: false };
-
-const STATUS_LABEL = { PRESENT: 'Present', LATE: 'Late', ABSENT: 'Absent', EXCUSED: 'Excused' };
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const FULL_DAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
 
 function formatRecordDate(dateStr) {
   const d = new Date(dateStr);
   return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+const STATUS_META = {
+  PRESENT: {
+    icon: 'checkmark-circle',
+    fg: colors.brandGoldDark,
+    bg: colors.yellowMuted,
+    label: 'Present',
+    subline: 'On time',
+  },
+  LATE: {
+    icon: 'time',
+    fg: '#B45309',
+    bg: '#FEF3C7',
+    label: 'Late',
+    subline: 'Arrived late',
+  },
+  EXCUSED: {
+    icon: 'shield-checkmark',
+    fg: colors.brandNavy,
+    bg: colors.brandNavyMuted,
+    label: 'Excused',
+    subline: 'Excused absence',
+  },
+  ABSENT: {
+    icon: 'close-circle',
+    fg: colors.danger,
+    bg: colors.redMuted,
+    label: 'Absent',
+    subline: 'Did not attend',
+  },
+};
+
+function RecentRecordRow({ record, index }) {
+  const meta = STATUS_META[record.status] ?? STATUS_META.ABSENT;
+  const enter = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      enter.setValue(0);
+      Animated.sequence([
+        Animated.delay(Math.min(index, 8) * 55),
+        Animated.spring(enter, {
+          toValue: 1,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, [enter, index])
+  );
+
+  const translateY = enter.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 0],
+  });
+
+  const d = new Date(record.date);
+  const dayLabel = FULL_DAYS[d.getDay()] ?? '';
+  const dateLabel = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+
+  return (
+    <Animated.View
+      style={[styles.recentCard, { opacity: enter, transform: [{ translateY }] }]}
+    >
+      <View style={[styles.recentIconWrap, { backgroundColor: meta.bg }]}>
+        <Ionicons name={meta.icon} size={20} color={meta.fg} />
+      </View>
+      <View style={styles.recentMid}>
+        <View style={styles.recentMidTop}>
+          <Text style={styles.recentDate} numberOfLines={1}>
+            {dayLabel}
+          </Text>
+          <Text style={styles.recentDateChip} numberOfLines={1}>
+            {dateLabel}
+          </Text>
+        </View>
+        <Text style={styles.recentSubLine} numberOfLines={1}>
+          {meta.subline}
+        </Text>
+      </View>
+      <View
+        style={[
+          styles.recentBadge,
+          { backgroundColor: `${meta.fg}1A`, borderColor: `${meta.fg}40` },
+        ]}
+      >
+        <Text style={[styles.recentBadgeText, { color: meta.fg }]}>
+          {meta.label}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+/** Single attendance bar with focus-triggered fill animation */
+function AttendanceBar({ record, index, chartHeight }) {
+  const isPresent = record.status === 'PRESENT' || record.status === 'LATE';
+  const h =
+    record.status === 'PRESENT'
+      ? 0.82
+      : record.status === 'LATE'
+      ? 0.55
+      : record.status === 'EXCUSED'
+      ? 0.45
+      : 0.2;
+  const targetHeight = Math.max(8, chartHeight * h * 0.94);
+
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      anim.setValue(0);
+      Animated.sequence([
+        Animated.delay(Math.min(index, 12) * 55),
+        Animated.spring(anim, {
+          toValue: 1,
+          friction: 7,
+          tension: 70,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }, [anim, index])
+  );
+
+  const animatedHeight = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [6, targetHeight],
+  });
+
+  return (
+    <View style={styles.barCol}>
+      <View style={styles.barTrack}>
+        <Animated.View
+          style={[
+            styles.barFill,
+            {
+              height: animatedHeight,
+              backgroundColor: isPresent ? colors.brandGold : colors.danger,
+            },
+          ]}
+        />
+      </View>
+    </View>
+  );
 }
 
 export default function AttendanceScreen({ navigation }) {
@@ -122,14 +336,6 @@ export default function AttendanceScreen({ navigation }) {
   // Recent list shows up to 7
   const recentList = records.slice(0, 7);
 
-  const studentName = data?.student
-    ? `${data.student.firstName} ${data.student.lastName}`
-    : student
-    ? `${student.firstName} ${student.lastName}`
-    : 'Student';
-  const className = data?.student?.class?.name ?? student?.class?.name ?? '—';
-  const studentId = data?.student?.studentId ?? student?.studentId ?? '—';
-
   if (isLoading) {
     return (
       <View style={[styles.root, { paddingTop: insets.top, justifyContent: 'center', alignItems: 'center' }]}>
@@ -155,20 +361,6 @@ export default function AttendanceScreen({ navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandNavy} />
         }
       >
-        {/* Student profile */}
-        <View style={styles.profileRow}>
-          <View style={[styles.profileAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brandNavyMuted }]}>
-            <Text style={{ fontSize: 24, fontWeight: '700', color: colors.brandNavy }}>
-              {data?.student?.firstName?.[0] ?? '?'}{data?.student?.lastName?.[0] ?? ''}
-            </Text>
-          </View>
-          <View style={styles.profileText}>
-            <Text style={styles.profileName}>{studentName}</Text>
-            <Text style={styles.profileMeta}>Class: {className}</Text>
-            <Text style={styles.profileMeta}>Student ID: {studentId}</Text>
-          </View>
-        </View>
-
         {/* Weekly card */}
         <View style={styles.weekCard}>
           <View style={styles.weekCardMain}>
@@ -222,25 +414,14 @@ export default function AttendanceScreen({ navigation }) {
                   ))}
                 </View>
                 <View style={[styles.barsRow, { height: chartHeight }]}>
-                  {barRecords.map((b, i) => {
-                    const isPresent = b.status === 'PRESENT' || b.status === 'LATE';
-                    const h = b.status === 'PRESENT' ? 0.82 : b.status === 'LATE' ? 0.55 : b.status === 'EXCUSED' ? 0.45 : 0.2;
-                    return (
-                      <View key={i} style={styles.barCol}>
-                        <View style={styles.barTrack}>
-                          <View
-                            style={[
-                              styles.barFill,
-                              {
-                                height: Math.max(8, chartHeight * h * 0.94),
-                                backgroundColor: isPresent ? colors.brandGold : colors.danger,
-                              },
-                            ]}
-                          />
-                        </View>
-                      </View>
-                    );
-                  })}
+                  {barRecords.map((b, i) => (
+                    <AttendanceBar
+                      key={`${b.date}-${i}`}
+                      record={b}
+                      index={i}
+                      chartHeight={chartHeight}
+                    />
+                  ))}
                 </View>
                 <View style={styles.xLabels}>
                   {barRecords.map((b, i) => {
@@ -267,57 +448,26 @@ export default function AttendanceScreen({ navigation }) {
         </View>
 
         {/* Recent list */}
-        <Text style={[styles.sectionTitle, styles.recentSectionTitle]}>Recent Records</Text>
+        <View style={styles.recentHeader}>
+          <Text style={[styles.sectionTitle, styles.recentSectionTitle]}>
+            Recent Records
+          </Text>
+          {recentList.length > 0 ? (
+            <View style={styles.recentCountPill}>
+              <Text style={styles.recentCountText}>{recentList.length}</Text>
+            </View>
+          ) : null}
+        </View>
         <View style={styles.recentList}>
           {recentList.length === 0 ? (
-            <View style={styles.recentRowOuter}>
-              <Text style={{ padding: 16, color: colors.textMuted }}>No attendance records yet</Text>
+            <View style={styles.recentEmpty}>
+              <Ionicons name="calendar-outline" size={28} color={colors.brandGold} />
+              <Text style={styles.recentEmptyText}>No attendance records yet</Text>
             </View>
           ) : (
-            recentList.map((r, idx) => {
-              const isPresent = r.status === 'PRESENT' || r.status === 'LATE';
-              return (
-                <View
-                  key={idx}
-                  style={[
-                    styles.recentRowOuter,
-                    isPresent ? styles.recentRowTintPresent : styles.recentRowTintAbsent,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.recentAccentBar,
-                      { backgroundColor: isPresent ? colors.brandGold : colors.danger },
-                    ]}
-                  />
-                  <View style={styles.recentRowInner}>
-                    <View style={styles.recentLeftCol}>
-                      <Text style={styles.recentDateLine} numberOfLines={1}>
-                        {formatRecordDate(r.date)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.recentStatusMin,
-                          isPresent ? styles.recentStatusPresent : styles.recentStatusAbsent,
-                        ]}
-                      >
-                        {STATUS_LABEL[r.status] ?? r.status}
-                      </Text>
-                    </View>
-                    <View style={styles.recentTimesMin}>
-                      <Text
-                        style={[
-                          styles.recentTimeMin,
-                          isPresent ? styles.recentTimePresent : styles.recentTimeAbsent,
-                        ]}
-                      >
-                        {r.status === 'LATE' ? 'Late' : r.status === 'EXCUSED' ? 'Excused' : isPresent ? 'On Time' : '—'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })
+            recentList.map((r, idx) => (
+              <RecentRecordRow key={`${r.date}-${idx}`} record={r} index={idx} />
+            ))
           )}
         </View>
       </ScrollView>
@@ -363,32 +513,6 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
     paddingHorizontal: 18,
-  },
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 18,
-  },
-  profileAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    resizeMode: 'cover',
-    borderWidth: 2,
-    borderColor: colors.white,
-  },
-  profileText: { flex: 1 },
-  profileName: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.brandNavy,
-    marginBottom: 4,
-  },
-  profileMeta: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 2,
   },
   weekCard: {
     backgroundColor: colors.cardBlue,
@@ -697,86 +821,99 @@ const styles = StyleSheet.create({
   },
   recentSectionTitle: {
     marginTop: 4,
-    marginBottom: 6,
+    marginBottom: 0,
   },
-  /** Tinted rows + accent — status color follows `present` */
-  recentList: {
-    marginTop: 0,
-    gap: 8,
-  },
-  recentRowOuter: {
+  recentHeader: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  recentCountPill: {
+    minWidth: 22,
+    height: 20,
+    paddingHorizontal: 7,
     borderRadius: 10,
-    overflow: 'hidden',
+    backgroundColor: colors.brandNavyMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.brandNavy,
+  },
+  recentList: {
+    gap: 10,
+  },
+  recentEmpty: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    padding: 24,
+    alignItems: 'center',
+    gap: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderLight,
   },
-  recentRowTintPresent: {
-    backgroundColor: colors.yellowMuted,
-  },
-  recentRowTintAbsent: {
-    backgroundColor: colors.redMuted,
-  },
-  recentAccentBar: {
-    width: 3,
-  },
-  recentRowInner: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-    paddingVertical: 10,
-    paddingRight: 10,
-    paddingLeft: 10,
-  },
-  recentLeftCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  recentDateLine: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.text,
-    lineHeight: 17,
-  },
-  recentStatusMin: {
-    fontSize: 12,
+  recentEmptyText: {
+    fontSize: 13,
     fontWeight: '600',
-    marginTop: 4,
+    color: colors.textMuted,
   },
-  recentStatusPresent: {
-    color: colors.brandGoldDark,
+  recentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
   },
-  recentStatusAbsent: {
-    color: colors.danger,
+  recentIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  recentTimesMin: {
-    alignItems: 'flex-end',
-    flexShrink: 0,
+  recentMid: { flex: 1, gap: 4 },
+  recentMidTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  recentTimeMin: {
+  recentDate: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.brandNavy,
+  },
+  recentDateChip: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textSoft,
+    backgroundColor: colors.borderLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  recentSubLine: {
     fontSize: 11,
     fontWeight: '600',
-  },
-  recentTimePresent: {
     color: colors.textMuted,
   },
-  recentTimeAbsent: {
-    color: colors.danger,
+  recentBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    minWidth: 64,
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  recentSubTimeMin: {
-    fontSize: 10,
-    color: colors.textSoft,
-    marginTop: 2,
-  },
-  recentSubOnTime: {
-    color: colors.brandGoldDark,
-    fontWeight: '600',
-  },
-  recentSubAbsentNote: {
-    color: colors.textMuted,
-    fontWeight: '500',
+  recentBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
   },
 });

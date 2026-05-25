@@ -14,6 +14,7 @@ import { useState } from 'react';
 import Svg, {
   Circle,
   Defs,
+  G,
   Line,
   Polygon,
   Rect,
@@ -54,17 +55,31 @@ function SubjectScoreBars({ subjects }) {
           const h = raw > 0 ? Math.max(6, (raw / 100) * plotH) : 4;
           const y = baselineY - h;
           const bx = 2 + i * (barW + gap);
+          const cx = bx + barW / 2;
+          const pct = r.totalScore != null ? `${Math.round(r.totalScore)}%` : '—';
+          const labelInside = h >= 18 && barW >= 12;
           return (
-            <Rect
-              key={i}
-              x={bx}
-              y={y}
-              width={barW}
-              height={h}
-              rx={4}
-              fill="url(#barFill)"
-              opacity={0.88}
-            />
+            <G key={`bar-group-${i}`}>
+              <Rect
+                x={bx}
+                y={y}
+                width={barW}
+                height={h}
+                rx={4}
+                fill="url(#barFill)"
+                opacity={0.88}
+              />
+              <SvgText
+                x={cx}
+                y={labelInside ? y + h / 2 + 3 : Math.max(12, y - 4)}
+                fontSize={barW < 14 ? 7 : 8}
+                fontWeight="700"
+                fill={labelInside ? '#FFFFFF' : '#1B4480'}
+                textAnchor="middle"
+              >
+                {pct}
+              </SvgText>
+            </G>
           );
         })}
         {subjects.map((r, i) => {
@@ -176,15 +191,28 @@ function SubjectRadarChart({ items = [] }) {
       />
       {dataPoints.map((p, i) =>
         padded[i].label ? (
-          <Circle
-            key={`pt-${i}`}
-            cx={p.x}
-            cy={p.y}
-            r={5}
-            fill="#C9A020"
-            stroke="#FFFFFF"
-            strokeWidth={2}
-          />
+          <G key={`pt-${i}`}>
+            <Circle
+              cx={p.x}
+              cy={p.y}
+              r={5}
+              fill="#C9A020"
+              stroke="#FFFFFF"
+              strokeWidth={2}
+            />
+            {padded[i].score != null && (
+              <SvgText
+                x={p.x}
+                y={p.y - 10}
+                fontSize="10"
+                fontWeight="800"
+                fill="#1B4480"
+                textAnchor="middle"
+              >
+                {`${Math.round(padded[i].score)}%`}
+              </SvgText>
+            )}
+          </G>
         ) : null
       )}
       {angles.map((a, i) => {

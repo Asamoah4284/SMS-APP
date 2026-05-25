@@ -1,6 +1,8 @@
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Modal,
   Pressable,
   RefreshControl,
@@ -12,8 +14,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import * as Linking from 'expo-linking';
 import { WebView } from 'react-native-webview';
 import { usePortalData } from '../hooks/usePortalData';
@@ -27,62 +30,99 @@ const DONUT_CY = 53;
 const DONUT_R = 42;
 const DONUT_STROKE = 14;
 
-function arcPath(cx, cy, r, startDeg, endDeg) {
-  const rad = (d) => (d * Math.PI) / 180;
-  const x1 = cx + r * Math.cos(rad(startDeg));
-  const y1 = cy + r * Math.sin(rad(startDeg));
-  const x2 = cx + r * Math.cos(rad(endDeg));
-  const y2 = cy + r * Math.sin(rad(endDeg));
-  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-  return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
-}
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_R;
 
-/** Shows % paid — logo gold arc on navy-tint track; full ring uses gold at 100% */
+/** Shows % paid — animates the gold arc from 0 to the target percent on focus */
 function FeesDonut({ paidPercent }) {
   const pct = Math.min(100, Math.max(0, paidPercent));
-  const start = -90;
-  const end = start + (360 * pct) / 100;
   const trackStroke = 'rgba(27, 68, 128, 0.14)';
   const arcStroke = colors.brandGold;
-  const isFull = pct >= 99.9;
+
+  const progress = useRef(new Animated.Value(0)).current;
+  const wrap = useRef(new Animated.Value(0)).current;
+  const counter = useRef(new Animated.Value(0)).current;
+  const [displayPct, setDisplayPct] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      progress.setValue(0);
+      wrap.setValue(0);
+      counter.setValue(0);
+      setDisplayPct(0);
+
+      const id = counter.addListener(({ value }) => {
+        setDisplayPct(Math.round(value));
+      });
+
+      Animated.parallel([
+        Animated.spring(wrap, {
+          toValue: 1,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.timing(counter, {
+          toValue: pct,
+          duration: 1000,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+      ]).start();
+
+      return () => counter.removeListener(id);
+    }, [counter, pct, progress, wrap])
+  );
+
+  const dashOffset = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [DONUT_CIRCUMFERENCE, DONUT_CIRCUMFERENCE * (1 - pct / 100)],
+  });
+
+  const wrapScale = wrap.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.82, 1],
+  });
+
   return (
-    <View style={styles.donutWrap}>
+    <Animated.View
+      style={[styles.donutWrap, { opacity: wrap, transform: [{ scale: wrapScale }] }]}
+    >
       <Svg width={DONUT_VIEW} height={DONUT_VIEW} viewBox={`0 0 ${DONUT_VIEW} ${DONUT_VIEW}`}>
-        {!isFull && (
-          <Path
-            d={arcPath(DONUT_CX, DONUT_CY, DONUT_R, 0, 359.999)}
-            stroke={trackStroke}
-            strokeWidth={DONUT_STROKE}
-            strokeLinecap="round"
-            fill="none"
-          />
-        )}
-        {isFull ? (
-          <Circle
+        <Circle
+          cx={DONUT_CX}
+          cy={DONUT_CY}
+          r={DONUT_R}
+          stroke={trackStroke}
+          strokeWidth={DONUT_STROKE}
+          fill="none"
+        />
+        {pct > 0 && (
+          <AnimatedCircle
             cx={DONUT_CX}
             cy={DONUT_CY}
             r={DONUT_R}
             stroke={arcStroke}
             strokeWidth={DONUT_STROKE}
+            strokeLinecap="round"
             fill="none"
+            strokeDasharray={DONUT_CIRCUMFERENCE}
+            strokeDashoffset={dashOffset}
+            transform={`rotate(-90 ${DONUT_CX} ${DONUT_CY})`}
           />
-        ) : (
-          pct > 0 && (
-            <Path
-              d={arcPath(DONUT_CX, DONUT_CY, DONUT_R, start, end)}
-              stroke={arcStroke}
-              strokeWidth={DONUT_STROKE}
-              strokeLinecap="round"
-              fill="none"
-            />
-          )
         )}
       </Svg>
       <View style={styles.donutCenter} pointerEvents="none">
-        <Text style={styles.donutPct}>{pct}%</Text>
+        <Text style={styles.donutPct}>{displayPct}%</Text>
         <Text style={styles.donutDue}>Paid</Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

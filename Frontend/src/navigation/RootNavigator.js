@@ -9,7 +9,7 @@ import FeesScreen from '../screens/FeesScreen';
 import ExaminationScreen from '../screens/ExaminationScreen';
 import GradesScreen from '../screens/GradesScreen';
 import TimetableScreen from '../screens/TimetableScreen';
-import PerformanceScreen from '../screens/PerformanceScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import AuthScreen from '../screens/AuthScreen';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
@@ -73,7 +73,7 @@ function AttendanceStack() {
 
 // ─── Main 5-tab navigator ─────────────────────────────────────────────────────
 // Tab order matters — index 2 is the center rounded "Fees" button:
-//   0: Overview  |  1: Attendance  |  2: Fees (center)  |  3: Examination  |  4: Performance
+//   0: Overview  |  1: Attendance  |  2: Fees (center)  |  3: Examination  |  4: Profile
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -84,7 +84,7 @@ function MainTabs() {
       <Tab.Screen name="Attendance"  component={AttendanceStack} />
       <Tab.Screen name="Fees"        component={FeesStack} />
       <Tab.Screen name="Examination" component={ExaminationScreen} />
-      <Tab.Screen name="Performance" component={PerformanceScreen} />
+      <Tab.Screen name="Profile"     component={ProfileScreen} />
     </Tab.Navigator>
   );
 }

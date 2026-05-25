@@ -1,15 +1,27 @@
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, {
+  ClipPath,
   Defs,
   LinearGradient,
+  G,
   Line,
   Path,
   Rect,
   Stop,
-  Circle,
   Text as SvgText,
 } from 'react-native-svg';
 import { usePortalData, average, scoreToGrade } from '../hooks/usePortalData';
@@ -46,19 +58,6 @@ const SUBJECT_ICONS = {
   French: 'translate',
 };
 
-const SCORE_LABELS = [
-  { score: 80, label: 'Excellent' },
-  { score: 70, label: 'Very Good' },
-  { score: 60, label: 'Good' },
-  { score: 50, label: 'Average' },
-  { score: 0,  label: 'Needs Work' },
-];
-
-function getLabel(score) {
-  if (score == null) return '—';
-  return SCORE_LABELS.find(s => score >= s.score)?.label ?? 'Needs Work';
-}
-
 function getGradeColor(grade) {
   if (!grade) return colors.textSoft;
   if (['A1', 'B2', 'B3'].includes(grade)) return colors.brandNavy;
@@ -72,9 +71,13 @@ const CHART_H = 162;
 const PLOT_TOP = 22;
 const PLOT_BOTTOM = CHART_H - 12;
 const PLOT_H = PLOT_BOTTOM - PLOT_TOP;
+const BAR_RADIUS = 7;
+
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /**
- * Renders the score distribution: gradient plot, dashed grid, bars with % labels, area + trend.
+ * Score distribution with entrance animation when the Exams tab gains focus.
  */
 function ScoreDistributionChart({ subjects }) {
   const n = subjects.length;
@@ -87,45 +90,75 @@ function ScoreDistributionChart({ subjects }) {
   const getBarX = (i) => innerPad + i * slot + (slot - barWidth) / 2;
   const barCenterX = (i) => getBarX(i) + barWidth / 2;
 
-  const scoreY = (score) => {
-    if (score == null) return PLOT_BOTTOM - 4;
-    const h = (score / maxScore) * PLOT_H * 0.94;
-    return PLOT_BOTTOM - h;
-  };
+  const barTargets = useMemo(
+    () =>
+      subjects.map((r, i) => {
+        const sc = r.totalScore;
+        const h = sc != null ? Math.max(6, (sc / maxScore) * PLOT_H * 0.94) : 6;
+        return {
+          x: getBarX(i),
+          h,
+          score: sc,
+        };
+      }),
+    [subjects, maxScore, n, barWidth, slot]
+  );
 
-  const pts = subjects.map((r, i) => {
-    const sc = r.totalScore;
-    const y = scoreY(sc);
-    return [barCenterX(i), y];
-  });
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const gridOpacity = useRef(new Animated.Value(0)).current;
+  const barAnimsRef = useRef([]);
 
-  const trendD =
-    pts.length > 1
-      ? pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(' ')
-      : '';
+  if (barAnimsRef.current.length !== n) {
+    barAnimsRef.current = Array.from({ length: n }, () => new Animated.Value(0));
+  }
+  const barAnims = barAnimsRef.current;
 
-  const areaD =
-    pts.length > 1
-      ? `${trendD} L ${pts[pts.length - 1][0]} ${PLOT_BOTTOM} L ${pts[0][0]} ${PLOT_BOTTOM} Z`
-      : '';
+  const runEntrance = useCallback(() => {
+    cardOpacity.setValue(0);
+    gridOpacity.setValue(0);
+    barAnims.forEach((a) => a.setValue(0));
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(gridOpacity, {
+          toValue: 1,
+          duration: 420,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ]),
+      Animated.stagger(
+        72,
+        barAnims.map((anim) =>
+          Animated.spring(anim, {
+            toValue: 1,
+            friction: 7,
+            tension: 68,
+            useNativeDriver: false,
+          })
+        )
+      ),
+    ]).start();
+  }, [barAnims, cardOpacity, gridOpacity]);
+
+  useFocusEffect(
+    useCallback(() => {
+      runEntrance();
+    }, [runEntrance])
+  );
 
   return (
-    <View style={styles.chartCard}>
-      <View style={styles.chartGoldAccent} />
+    <Animated.View style={[styles.chartCard, { opacity: cardOpacity }]}>
       <View style={styles.chartCardHeader}>
         <View>
           <Text style={styles.chartKicker}>By subject</Text>
           <Text style={styles.chartHeadline}>Score distribution</Text>
-        </View>
-        <View style={styles.chartLegendMini}>
-          <View style={styles.chartLegendItem}>
-            <View style={[styles.chartLegendSwatch, { backgroundColor: colors.brandNavy }]} />
-            <Text style={styles.chartLegendTxt}>Bars</Text>
-          </View>
-          <View style={styles.chartLegendItem}>
-            <View style={[styles.chartLegendDot, { borderColor: colors.brandGold }]} />
-            <Text style={styles.chartLegendTxt}>Trend</Text>
-          </View>
         </View>
       </View>
 
@@ -144,10 +177,6 @@ function ScoreDistributionChart({ subjects }) {
                 <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
                 <Stop offset="1" stopColor="#E8EEF7" stopOpacity="1" />
               </LinearGradient>
-              <LinearGradient id="trendAreaFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor="#1B4480" stopOpacity="0.14" />
-                <Stop offset="1" stopColor="#1B4480" stopOpacity="0.02" />
-              </LinearGradient>
               {['gA', 'gB', 'gC', 'gD', 'gE', 'gF'].map((id, i) => {
                 const [top, bottom] = BAR_GRADIENT_BASE[i] ?? BAR_GRADIENT_BASE[0];
                 return (
@@ -157,6 +186,9 @@ function ScoreDistributionChart({ subjects }) {
                   </LinearGradient>
                 );
               })}
+              <ClipPath id="barTopOnly">
+                <Rect x={0} y={0} width={CHART_W} height={PLOT_BOTTOM} />
+              </ClipPath>
             </Defs>
 
             <Rect
@@ -164,22 +196,20 @@ function ScoreDistributionChart({ subjects }) {
               y={PLOT_TOP - 2}
               width={CHART_W - 8}
               height={PLOT_BOTTOM - PLOT_TOP + 4}
-              rx={12}
               fill="url(#chartPlotBg)"
-              stroke="rgba(27, 68, 128, 0.1)"
+              stroke="rgba(27, 68, 128, 0.12)"
               strokeWidth={1}
             />
 
             {[0.25, 0.5, 0.75].map((frac) => (
-              <Line
+              <AnimatedPath
                 key={frac}
-                x1={8}
-                y1={PLOT_TOP + PLOT_H * frac}
-                x2={CHART_W - 8}
-                y2={PLOT_TOP + PLOT_H * frac}
+                d={`M 8 ${PLOT_TOP + PLOT_H * frac} L ${CHART_W - 8} ${PLOT_TOP + PLOT_H * frac}`}
                 stroke="rgba(27, 68, 128, 0.1)"
                 strokeWidth={1}
                 strokeDasharray="4 7"
+                fill="none"
+                opacity={gridOpacity}
               />
             ))}
 
@@ -191,64 +221,51 @@ function ScoreDistributionChart({ subjects }) {
               stroke="#C9A020"
               strokeWidth={2}
               strokeLinecap="round"
-              opacity={0.85}
+              opacity={0.9}
             />
 
-            {areaD.length > 8 && <Path d={areaD} fill="url(#trendAreaFill)" />}
-
             {subjects.map((r, i) => {
+              const { x, h } = barTargets[i];
               const sc = r.totalScore;
-              const h =
-                sc != null ? Math.max(6, (sc / maxScore) * PLOT_H * 0.94) : 6;
-              const x = getBarX(i);
-              const y = PLOT_BOTTOM - h;
+              const anim = barAnims[i];
+              if (!anim) return null;
+              const BAR_BOTTOM_EXTEND = BAR_RADIUS;
+              const animatedHeight = anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [BAR_BOTTOM_EXTEND, h + BAR_BOTTOM_EXTEND],
+              });
+              const animatedY = anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [PLOT_BOTTOM, PLOT_BOTTOM - h],
+              });
+              const gradeLabel =
+                r.grade ?? (sc != null ? scoreToGrade(sc) : '—');
+              const labelY = Math.max(PLOT_TOP + 8, PLOT_BOTTOM - h - 6);
               return (
-                <Rect
-                  key={i}
-                  x={x}
-                  y={y}
-                  width={barWidth}
-                  height={h}
-                  rx={7}
-                  ry={7}
-                  fill={`url(#g${['A', 'B', 'C', 'D', 'E', 'F'][i]})`}
-                />
+                <G key={`bar-group-${i}`}>
+                  <AnimatedRect
+                    x={x}
+                    y={animatedY}
+                    width={barWidth}
+                    height={animatedHeight}
+                    rx={BAR_RADIUS}
+                    ry={BAR_RADIUS}
+                    fill={`url(#g${['A', 'B', 'C', 'D', 'E', 'F'][i]})`}
+                    clipPath="url(#barTopOnly)"
+                  />
+                  <SvgText
+                    x={barCenterX(i)}
+                    y={labelY}
+                    fontSize={barWidth < 20 ? 9 : 11}
+                    fontWeight="800"
+                    fill="#1B4480"
+                    textAnchor="middle"
+                  >
+                    {gradeLabel}
+                  </SvgText>
+                </G>
               );
             })}
-
-            {subjects.map((r, i) => {
-              const sc = r.totalScore;
-              if (sc == null) return null;
-              const y = scoreY(sc);
-              return (
-                <SvgText
-                  key={`lbl-${i}`}
-                  x={barCenterX(i)}
-                  y={Math.max(PLOT_TOP + 11, y - 5)}
-                  fontSize={10}
-                  fontWeight="700"
-                  fill="#1B4480"
-                  textAnchor="middle"
-                >
-                  {`${Math.round(sc)}%`}
-                </SvgText>
-              );
-            })}
-
-            {trendD.length > 8 && (
-              <Path
-                d={trendD}
-                stroke="#1B4480"
-                strokeWidth={2.5}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-
-            {pts.map((p, i) => (
-              <Circle key={`pt-${i}`} cx={p[0]} cy={p[1]} r={4} fill="#C9A020" stroke="#FFFFFF" strokeWidth={1.5} />
-            ))}
           </Svg>
 
           <View style={styles.chartX}>
@@ -260,24 +277,106 @@ function ScoreDistributionChart({ subjects }) {
           </View>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-function SubjectTile({ title, score, grade, tint, icon }) {
+function ResultCard({ result, index, tint }) {
+  const gradeColor = getGradeColor(result.grade);
+  const pct = result.totalScore != null
+    ? Math.max(0, Math.min(100, result.totalScore))
+    : 0;
+
+  const enter = useRef(new Animated.Value(0)).current;
+  const fillProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const delay = Math.min(index, 8) * 60;
+    const anim = Animated.sequence([
+      Animated.delay(delay),
+      Animated.parallel([
+        Animated.timing(enter, {
+          toValue: 1,
+          duration: 360,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fillProgress, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+      ]),
+    ]);
+    anim.start();
+    return () => anim.stop();
+  }, [enter, fillProgress, index]);
+
+  const translateY = enter.interpolate({
+    inputRange: [0, 1],
+    outputRange: [12, 0],
+  });
+  const fillWidth = fillProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', `${pct}%`],
+  });
+
   return (
-    <View style={[styles.subjectTile, { flex: 1 }]}>
-      <View style={styles.subjectTileTop}>
-        <MaterialCommunityIcons name={icon || 'book-outline'} size={20} color={colors.brandNavy} />
-        <Text style={styles.subjectTileTitle} numberOfLines={1}>{title}</Text>
+    <Animated.View
+      style={[styles.resultCard, { opacity: enter, transform: [{ translateY }] }]}
+    >
+      <View style={[styles.resultIconWrap, { backgroundColor: tint }]}>
+        <MaterialCommunityIcons
+          name={SUBJECT_ICONS[result.subject] ?? 'book-open-variant'}
+          size={20}
+          color={colors.brandNavy}
+        />
       </View>
-      <Text style={[styles.subjectTileScore, { color: getGradeColor(grade) }]}>
-        {score != null ? `${score.toFixed(0)}%` : '—'}
-      </Text>
-      <View style={[styles.subjectTilePill, { backgroundColor: tint }]}>
-        <Text style={styles.subjectTilePillText}>{getLabel(score)}</Text>
+      <View style={styles.resultMid}>
+        <View style={styles.resultMidTop}>
+          <Text style={styles.resultSubject} numberOfLines={1}>
+            {result.subject}
+          </Text>
+          <Text
+            style={[styles.resultScore, { color: gradeColor }]}
+            numberOfLines={1}
+          >
+            {result.totalScore != null ? `${result.totalScore.toFixed(0)}%` : '—'}
+          </Text>
+        </View>
+        <View style={styles.resultProgressTrack}>
+          <Animated.View
+            style={[
+              styles.resultProgressFill,
+              { width: fillWidth, backgroundColor: gradeColor },
+            ]}
+          />
+        </View>
+        <View style={styles.resultMidBottom}>
+          <View style={styles.resultTermRow}>
+            <Ionicons
+              name="calendar-outline"
+              size={11}
+              color={colors.textSoft}
+            />
+            <Text style={styles.resultTerm} numberOfLines={1}>
+              {result.term ?? '—'}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.resultGradeBadge,
+              { backgroundColor: `${gradeColor}1A`, borderColor: `${gradeColor}40` },
+            ]}
+          >
+            <Text style={[styles.resultGradeBadgeText, { color: gradeColor }]}>
+              {result.grade ?? '—'}
+            </Text>
+          </View>
+        </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -308,9 +407,6 @@ export default function ExaminationScreen({ navigation }) {
   const avgScore = average(scores);
   const avgGrade = scoreToGrade(avgScore);
   const mostRecent = results[0] ?? null;
-
-  // Up to 3 subjects for tiles
-  const subjectTiles = results.slice(0, 3);
 
   const chartSubjects = results.slice(0, 6);
 
@@ -344,75 +440,130 @@ export default function ExaminationScreen({ navigation }) {
           <>
             {/* Summary cards */}
             <View style={styles.summaryRow}>
+              {/* Most Recent — light card with gold accents */}
               <View style={[styles.summaryCard, styles.summaryCardWarm]}>
-                <View style={styles.summaryTop}>
-                  <View style={styles.summaryIconWarm}>
-                    <MaterialCommunityIcons name="calendar-check" size={24} color={colors.brandNavy} />
+                <View style={styles.warmAccent} />
+                <View style={styles.summaryHeaderRow}>
+                  <View style={styles.summaryKickerRow}>
+                    <View style={styles.warmKickerIcon}>
+                      <MaterialCommunityIcons
+                        name="trending-up"
+                        size={11}
+                        color={colors.brandGoldDark}
+                      />
+                    </View>
+                    <Text style={styles.warmKicker}>RECENT</Text>
                   </View>
-                  <Text style={styles.summaryTitle}>Most Recent{'\n'}Result</Text>
+                  {mostRecent?.term ? (
+                    <Text style={styles.warmTermBadge} numberOfLines={1}>
+                      {mostRecent.term}
+                    </Text>
+                  ) : null}
                 </View>
-                <Text style={styles.summaryMidTitle} numberOfLines={1}>
+
+                <Text style={styles.summarySubject} numberOfLines={1}>
                   {mostRecent?.subject ?? '—'}
                 </Text>
-                <Text style={styles.summaryPctWarm}>
-                  {mostRecent?.totalScore != null ? `${mostRecent.totalScore.toFixed(0)}%` : '—'}
-                </Text>
-                <Text style={styles.summaryFoot}>Grade: {mostRecent?.grade ?? '—'}</Text>
+
+                <View style={styles.summaryScoreRow}>
+                  <Text style={styles.summaryBigScore}>
+                    {mostRecent?.totalScore != null
+                      ? `${mostRecent.totalScore.toFixed(0)}`
+                      : '—'}
+                    <Text style={styles.summaryBigPct}>
+                      {mostRecent?.totalScore != null ? '%' : ''}
+                    </Text>
+                  </Text>
+                  <View style={styles.summaryGradePill}>
+                    <Text style={styles.summaryGradePillText}>
+                      {avgGrade ?? '—'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.summaryProgressTrackLight}>
+                  <View
+                    style={[
+                      styles.summaryProgressFill,
+                      {
+                        width: `${Math.min(
+                          100,
+                          Math.max(0, mostRecent?.totalScore ?? 0)
+                        )}%`,
+                        backgroundColor: colors.brandGold,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
 
+              {/* Overall — solid navy with gold highlights */}
               <View style={[styles.summaryCard, styles.summaryCardCool]}>
-                <View style={styles.summaryTop}>
-                  <View style={styles.summaryIconCool}>
-                    <Ionicons name="school-outline" size={22} color={colors.white} />
+                <View style={styles.coolAccent} />
+                <View style={styles.summaryHeaderRow}>
+                  <View style={styles.summaryKickerRow}>
+                    <View style={styles.coolKickerIcon}>
+                      <Ionicons name="school" size={11} color={colors.white} />
+                    </View>
+                    <Text style={styles.coolKicker}>OVERALL</Text>
                   </View>
-                  <Text style={styles.summaryTitle}>Overall{'\n'}Performance</Text>
+                  <Text style={styles.coolTermBadge}>
+                    {results.length} subj
+                  </Text>
                 </View>
-                <Text style={styles.summaryPctCool}>
-                  {avgScore != null ? `${avgScore.toFixed(0)}%` : '—'}
+
+                <Text style={styles.coolLabel} numberOfLines={1}>
+                  Performance
                 </Text>
-                <View style={styles.gradeBadgeRow}>
-                  <View style={styles.gradeBadge}>
-                    <Text style={styles.gradeBadgeText}>{avgGrade}</Text>
+
+                <View style={styles.summaryScoreRow}>
+                  <Text style={styles.coolBigScore}>
+                    {avgScore != null ? avgScore.toFixed(0) : '—'}
+                    <Text style={styles.coolBigPct}>
+                      {avgScore != null ? '%' : ''}
+                    </Text>
+                  </Text>
+                  <View style={styles.coolGradePill}>
+                    <Text style={styles.coolGradePillText}>{avgGrade}</Text>
                   </View>
+                </View>
+
+                <View style={styles.summaryProgressTrackDark}>
+                  <View
+                    style={[
+                      styles.summaryProgressFill,
+                      {
+                        width: `${Math.min(
+                          100,
+                          Math.max(0, avgScore ?? 0)
+                        )}%`,
+                        backgroundColor: colors.brandGold,
+                      },
+                    ]}
+                  />
                 </View>
               </View>
             </View>
 
             {chartSubjects.length > 0 && <ScoreDistributionChart subjects={chartSubjects} />}
 
-            {/* Subject tiles */}
-            <Text style={styles.sectionTitle}>Subject Performance</Text>
-            <View style={styles.subjectTiles}>
-              {subjectTiles.map((r, i) => (
-                <SubjectTile
-                  key={i}
-                  title={r.subject}
-                  score={r.totalScore}
-                  grade={r.grade}
-                  tint={SUBJECT_TINTS[i % SUBJECT_TINTS.length]}
-                  icon={SUBJECT_ICONS[r.subject] ?? 'book-open-variant'}
-                />
-              ))}
-            </View>
-
             {/* Full results list if more than 3 */}
             {results.length > 3 && (
               <>
-                <Text style={styles.sectionTitle}>All Results</Text>
-                <View style={styles.resultsCard}>
+                <View style={styles.allResultsHeader}>
+                  <Text style={styles.sectionTitle}>All Results</Text>
+                  <View style={styles.allResultsCountPill}>
+                    <Text style={styles.allResultsCountText}>{results.length}</Text>
+                  </View>
+                </View>
+                <View style={styles.resultsList}>
                   {results.map((r, i) => (
-                    <View key={i} style={[styles.resultRow, i > 0 && styles.resultRowRule]}>
-                      <Text style={styles.resultSubject} numberOfLines={1}>{r.subject}</Text>
-                      <Text style={styles.resultTerm} numberOfLines={1}>{r.term}</Text>
-                      <Text style={[styles.resultScore, { color: getGradeColor(r.grade) }]}>
-                        {r.totalScore != null ? r.totalScore.toFixed(0) : '—'}
-                      </Text>
-                      <View style={[styles.resultGradeBadge, { marginLeft: 6 }]}>
-                        <Text style={[styles.resultGradeBadgeText, { color: getGradeColor(r.grade) }]}>
-                          {r.grade ?? '—'}
-                        </Text>
-                      </View>
-                    </View>
+                    <ResultCard
+                      key={`${r.subject}-${r.term ?? i}`}
+                      result={r}
+                      index={i}
+                      tint={SUBJECT_TINTS[i % SUBJECT_TINTS.length]}
+                    />
                   ))}
                 </View>
               </>
@@ -443,62 +594,180 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: '700', color: colors.brandNavy },
   emptyBody: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
 
-  summaryRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
+  summaryRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   summaryCard: {
     flex: 1,
-    borderRadius: radius.md,
-    padding: 14,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderLight,
     overflow: 'hidden',
+    minHeight: 158,
   },
   summaryCardWarm: {
-    backgroundColor: colors.yellowMuted,
+    backgroundColor: colors.white,
     borderColor: 'rgba(201, 160, 32, 0.28)',
   },
   summaryCardCool: {
-    backgroundColor: colors.hlFeeBlueBg,
-    borderColor: colors.brandNavyMuted,
-  },
-  summaryTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  summaryIconWarm: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(201, 160, 32, 0.4)',
-  },
-  summaryIconCool: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
     backgroundColor: colors.brandNavy,
+    borderColor: colors.brandNavy,
+  },
+  warmAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: colors.brandGold,
+  },
+  coolAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: colors.brandGold,
+  },
+  summaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  summaryKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  warmKickerIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.yellowMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  summaryTitle: { fontSize: 12, fontWeight: '800', color: colors.brandNavy, lineHeight: 15 },
-  summaryMidTitle: { marginTop: 14, fontSize: 12, fontWeight: '800', color: colors.text },
-  summaryPctWarm: { marginTop: 6, fontSize: 28, fontWeight: '900', color: colors.brandNavy },
-  summaryPctCool: { marginTop: 18, fontSize: 28, fontWeight: '900', color: colors.brandNavy },
-  summaryFoot: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.textMuted },
-  gradeBadgeRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  gradeBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
+  coolKickerIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  warmKicker: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: colors.brandGoldDark,
+    letterSpacing: 0.7,
+  },
+  coolKicker: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: 'rgba(255, 255, 255, 0.85)',
+    letterSpacing: 0.7,
+  },
+  warmTermBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textSoft,
+    maxWidth: 80,
+  },
+  coolTermBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  summarySubject: {
+    marginTop: 14,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.brandNavy,
+  },
+  coolLabel: {
+    marginTop: 14,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  summaryScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  summaryBigScore: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: colors.brandNavy,
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+  },
+  summaryBigPct: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.brandGoldDark,
+  },
+  coolBigScore: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: colors.white,
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+  },
+  coolBigPct: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.brandGold,
+  },
+  summaryGradePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
     backgroundColor: colors.yellowMuted,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(201, 160, 32, 0.45)',
   },
-  gradeBadgeText: { fontSize: 11, fontWeight: '900', color: colors.brandNavy },
+  summaryGradePillText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.brandNavy,
+  },
+  coolGradePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: colors.brandGold,
+  },
+  coolGradePillText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.brandNavy,
+  },
+  summaryProgressTrackLight: {
+    marginTop: 12,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(27, 68, 128, 0.08)',
+    overflow: 'hidden',
+  },
+  summaryProgressTrackDark: {
+    marginTop: 12,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    overflow: 'hidden',
+  },
+  summaryProgressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
 
   sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.brandNavy, marginTop: 6, marginBottom: 10 },
   chartCard: {
     backgroundColor: colors.white,
-    borderRadius: radius.lg,
+    borderRadius: 0,
     paddingHorizontal: 14,
     paddingTop: 16,
     paddingBottom: 14,
@@ -507,21 +776,9 @@ const styles = StyleSheet.create({
     borderColor: colors.brandNavyMuted,
     overflow: 'hidden',
   },
-  chartGoldAccent: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 3,
-    backgroundColor: colors.brandGold,
-  },
   chartCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
     marginBottom: 12,
     paddingTop: 4,
-    gap: 6,
   },
   chartKicker: {
     fontSize: 10,
@@ -536,30 +793,6 @@ const styles = StyleSheet.create({
     color: colors.brandNavy,
     letterSpacing: -0.3,
     marginTop: 2,
-  },
-  chartLegendMini: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingTop: 4,
-  },
-  chartLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  chartLegendSwatch: {
-    width: 10,
-    height: 8,
-    borderRadius: 2,
-  },
-  chartLegendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
-    backgroundColor: 'transparent',
-  },
-  chartLegendTxt: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textMuted,
   },
   chartInner: { flexDirection: 'row', alignItems: 'flex-start' },
   chartY: { width: 38, height: 162, justifyContent: 'space-between', paddingTop: 2, paddingBottom: 2 },
@@ -579,42 +812,102 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.85,
   },
-
-  subjectTiles: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
-  subjectTile: {
-    minWidth: '30%',
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    padding: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.brandNavyMuted,
+  allResultsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+    marginBottom: 10,
   },
-  subjectTileTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  subjectTileTitle: { fontSize: 12, fontWeight: '800', color: colors.brandNavy, flex: 1 },
-  subjectTileScore: { marginTop: 8, fontSize: 20, fontWeight: '900' },
-  subjectTilePill: { marginTop: 10, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
-  subjectTilePillText: { fontSize: 11, fontWeight: '800', color: colors.brandNavy },
-
-  resultsCard: {
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderLight,
+  allResultsCountPill: {
+    minWidth: 22,
+    height: 20,
+    paddingHorizontal: 7,
+    borderRadius: 10,
+    backgroundColor: colors.brandNavyMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  allResultsCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.brandNavy,
+  },
+  resultsList: {
+    gap: 10,
     marginBottom: 14,
   },
-  resultRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11 },
-  resultRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  resultSubject: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.brandNavy },
-  resultTerm: { fontSize: 11, color: colors.textSoft, marginRight: 10 },
-  resultScore: { fontSize: 14, fontWeight: '800' },
+  resultCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+  },
+  resultIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultMid: { flex: 1, gap: 6 },
+  resultMidTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  resultSubject: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.brandNavy,
+  },
+  resultScore: {
+    fontSize: 14,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  resultProgressTrack: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.borderLight,
+    overflow: 'hidden',
+  },
+  resultProgressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  resultMidBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  resultTermRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  resultTerm: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSoft,
+    flex: 1,
+  },
   resultGradeBadge: {
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 3,
     borderRadius: 8,
-    backgroundColor: colors.brandNavyMuted,
     minWidth: 36,
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  resultGradeBadgeText: { fontSize: 11, fontWeight: '800' },
+  resultGradeBadgeText: { fontSize: 11, fontWeight: '900' },
 });
