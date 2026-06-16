@@ -1,7 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Platform } from 'react-native';
 import HomeScreen from '../screens/HomeScreen';
 import AttendanceScreen from '../screens/AttendanceScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -11,6 +11,7 @@ import GradesScreen from '../screens/GradesScreen';
 import TimetableScreen from '../screens/TimetableScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AuthScreen from '../screens/AuthScreen';
+import SplashScreen from '../screens/SplashScreen';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
 import CustomTabBar from './CustomTabBar';
@@ -93,13 +94,9 @@ function MainTabs() {
 export default function RootNavigator() {
   const { token, student, status } = useAuth();
 
-  // Show a blank screen while AsyncStorage is being read
+  // Show the branded splash while AsyncStorage is read and the saved token is verified
   if (status === 'loading') {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-        <ActivityIndicator size="large" color={colors.iconBlue} />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   const isAuthenticated = !!token && !!student;

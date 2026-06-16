@@ -19,6 +19,9 @@ import { useAuth } from '../context/AuthContext';
 import { useSchool } from '../context/SchoolContext';
 import { colors, radius, shadowCard } from '../theme';
 
+/** Only treat a logo value as remote if it's a fully-qualified http(s) URL. */
+const isAbsoluteUrl = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+
 export default function AuthScreen() {
   const { lookupByPhone, selectChild, lookupPhone, lookupToken, childrenList, clearLookupCache } = useAuth();
   const { school } = useSchool();
@@ -234,15 +237,14 @@ export default function AuthScreen() {
           ]}
         >
           <View style={styles.logoIcon}>
-            {school?.logo ? (
-              <Image
-                source={{ uri: school.logo }}
-                style={styles.schoolLogo}
-                resizeMode="contain"
-              />
-            ) : (
-              <Ionicons name="school-outline" size={32} color={colors.iconBlue} />
-            )}
+            {/* Use the school's hosted logo only when it's a full URL — the backend
+                currently sends a relative "/logo.png" that resolves nowhere. Otherwise
+                fall back to the bundled crest so the brand mark always shows. */}
+            <Image
+              source={isAbsoluteUrl(school?.logo) ? { uri: school.logo } : require('../../assets/logo.png')}
+              style={styles.schoolLogo}
+              resizeMode="contain"
+            />
           </View>
           <Text style={styles.appName}>Deacons Academy Foundation</Text>
           <Text style={styles.portalText}>Parent Portal</Text>
@@ -473,13 +475,20 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logoIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.md,
-    backgroundColor: colors.iconBlueMuted,
+    width: 76,
+    height: 76,
+    borderRadius: radius.lg,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+    padding: 8,
+  },
+  schoolLogo: {
+    width: '100%',
+    height: '100%',
   },
   appName: {
     fontSize: 22,

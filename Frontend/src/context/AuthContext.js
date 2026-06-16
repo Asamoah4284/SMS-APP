@@ -1,12 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE } from '../config/api';
+import { API_BASE, verifySession } from '../config/api';
 
 const STORAGE_TOKEN = '@edutrack_parent_token';
 const STORAGE_STUDENT = '@edutrack_selected_student';
 const STORAGE_LOOKUP_PHONE = '@edutrack_lookup_phone';
 const STORAGE_LOOKUP_TOKEN = '@edutrack_lookup_token';
 const STORAGE_LOOKUP_CHILDREN = '@edutrack_lookup_children';
+
+// Keep the splash on screen at least this long so the crest is actually seen —
+// otherwise it flashes by whenever the token check returns quickly.
+const MIN_SPLASH_MS = 2200;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function getMany(keys) {
   return Promise.all(
@@ -40,6 +46,7 @@ export function AuthProvider({ children }) {
   // Rehydrate from storage on first mount
   useEffect(() => {
     (async () => {
+      const startedAt = Date.now();
       try {
         const [storedToken, storedStudent, storedLookupPhone, storedLookupToken, storedLookupChildren] = await getMany([
           STORAGE_TOKEN,
@@ -55,17 +62,43 @@ export function AuthProvider({ children }) {
         const lt = storedLookupToken[1] || null;
         const lc = storedLookupChildren[1] ? JSON.parse(storedLookupChildren[1]) : null;
 
-        if (t && s) {
-          setToken(t);
-          setStudent(s);
-        }
-
+        // The phone number is always safe to restore — it only prefills the lookup field.
         if (p) setLookupPhone(p);
-        if (lt) setLookupToken(lt);
-        if (Array.isArray(lc) && lc.length > 0) setChildrenList(lc);
+
+        // Validate the saved session token before trusting it. The parent token is
+        // a JWT that can expire; without this check a stale token would render the
+        // dashboard and then fail every request with a 401 "unauthenticated" error.
+        // Only an outright rejection (401/403) signs the user out — a network error
+        // returns 'unknown' so offline users stay logged in.
+        const sessionState =
+          t && s?.studentId ? await verifySession(s.studentId, t) : 'invalid';
+
+        if (sessionState === 'invalid' && t && s) {
+          // Dead session → drop the token-bearing data so the app starts on the
+          // phone-lookup screen (phone stays prefilled). The cached lookup token
+          // is the same value, so it's expired too — clear it as well.
+          await removeMany([
+            STORAGE_TOKEN,
+            STORAGE_STUDENT,
+            STORAGE_LOOKUP_TOKEN,
+            STORAGE_LOOKUP_CHILDREN,
+          ]).catch(() => {});
+        } else {
+          // 'valid', 'unknown' (offline), or no session yet (e.g. mid "switch child").
+          if (t && s) {
+            setToken(t);
+            setStudent(s);
+          }
+          if (lt) setLookupToken(lt);
+          if (Array.isArray(lc) && lc.length > 0) setChildrenList(lc);
+        }
       } catch {
         // Corrupted storage — start fresh
       } finally {
+        // Hold the splash for the rest of its minimum window (if the work
+        // finished sooner) so it doesn't blink in and out.
+        const remaining = MIN_SPLASH_MS - (Date.now() - startedAt);
+        if (remaining > 0) await delay(remaining);
         setStatus('ready');
       }
     })();

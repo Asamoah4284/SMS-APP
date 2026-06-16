@@ -61,3 +61,45 @@ export async function apiFetch(path, token, options = {}) {
 
   return data;
 }
+
+/**
+ * Lightweight check that a saved session token is still accepted by the backend.
+ * Used on app startup (in the splash screen) so an expired token routes the
+ * parent back to the phone-lookup screen instead of dumping them on a dashboard
+ * that 401s with an "unauthenticated" error.
+ *
+ * Returns one of:
+ *   'valid'   – backend accepted the token (2xx)
+ *   'invalid' – backend rejected the token (401/403) → must re-authenticate
+ *   'unknown' – couldn't reach the backend / timeout / server error
+ *               → caller should KEEP the session (likely just offline)
+ *
+ * @param {string} studentId - selected student's id (the token is checked against this)
+ * @param {string} token     - JWT from AuthContext
+ */
+export async function verifySession(studentId, token, { timeoutMs = 6000 } = {}) {
+  if (!token || !studentId) return 'invalid';
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${API_BASE}/portal/child/${studentId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      signal: controller.signal,
+    });
+
+    if (res.ok) return 'valid';
+    if (res.status === 401 || res.status === 403) return 'invalid';
+    // 404 / 5xx / anything else — don't sign the user out over a server hiccup
+    return 'unknown';
+  } catch {
+    // Network failure or timeout — keep the user signed in (they may be offline)
+    return 'unknown';
+  } finally {
+    clearTimeout(timer);
+  }
+}
