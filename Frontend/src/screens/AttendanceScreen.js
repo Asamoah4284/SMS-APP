@@ -315,6 +315,7 @@ export default function AttendanceScreen({ navigation }) {
   const { student } = useAuth();
   const { data, isLoading, refetch } = usePortalData();
   const [refreshing, setRefreshing] = useState(false);
+  const canGoBack = navigation?.canGoBack?.() ?? false;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -347,10 +348,16 @@ export default function AttendanceScreen({ navigation }) {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerLeft}>
-          <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
-          <Text style={styles.headerTitle}>Attendance</Text>
-        </Pressable>
+        {canGoBack ? (
+          <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerLeft}>
+            <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
+            <Text style={styles.headerTitle}>Attendance</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>Attendance</Text>
+          </View>
+        )}
       </View>
 
       <ScrollView

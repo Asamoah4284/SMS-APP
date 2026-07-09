@@ -17,6 +17,9 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { usePortalData } from '../hooks/usePortalData';
+import { useBooksData } from '../hooks/useBooksData';
+import { useTimetable } from '../hooks/useTimetable';
+import { useAnnouncements, formatAnnouncementDate } from '../hooks/useAnnouncements';
 import { colors, radius, TAB_BAR_HEIGHT } from '../theme';
 
 const shadowCard = Platform.select({
@@ -55,8 +58,21 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { student, token, switchChild, signOut } = useAuth();
   const { data, isLoading, error, refetch } = usePortalData();
+  const { data: booksData } = useBooksData();
+  const { data: timetableData } = useTimetable();
+  const { data: announcementsData } = useAnnouncements();
   const [menuVisible, setMenuVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const announcements = (Array.isArray(announcementsData) ? announcementsData : []).slice(0, 3);
+
+  const openStackScreen = (screen) => {
+    navigation.navigate(screen);
+  };
+
+  const openFeesTab = () => {
+    navigation.getParent()?.navigate('Fees');
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -91,6 +107,14 @@ export default function HomeScreen() {
   const attendanceRate = data?.attendance?.rate ?? 0;
   const latestGrades = data?.results?.slice(0, 2) || [];
   const balanceDue = data?.fees?.balance ?? 0;
+  const termName = data?.fees?.termName || 'Current term';
+  const booksBalance = booksData?.balance ?? 0;
+  const unpaidBookCount = (booksData?.books ?? []).filter((b) => !b.isPaid).length;
+  const todayDow = new Date().getDay();
+  const timetableDay = todayDow >= 1 && todayDow <= 5 ? todayDow : null;
+  const todayEntries = timetableDay
+    ? (timetableData?.entries ?? []).filter((e) => e.dayOfWeek === timetableDay)
+    : [];
 
   const openProfile = () => {
     setMenuVisible(false);
@@ -249,7 +273,7 @@ export default function HomeScreen() {
                     pressed && styles.viewProfilePillPressed,
                   ]}
                   hitSlop={6}
-                  onPress={() => navigation.navigate('Attendance')}
+                  onPress={() => openStackScreen('Attendance')}
                 >
                   <Text style={styles.viewProfilePillText}>Attendance</Text>
                   <Ionicons
@@ -276,11 +300,11 @@ export default function HomeScreen() {
             <QuickAction
               iconBg={colors.quickExamBg}
               iconColor={colors.quickExamFg}
-              icon="checkbox-marked-circle-outline"
+              icon="book-open-variant"
               iconFamily="mci"
-              title="Examination"
-              subtitle="Term 1"
-              onPress={() => navigation.navigate('Examination')}
+              title="Library"
+              subtitle={unpaidBookCount > 0 ? `${unpaidBookCount} to pay` : 'Textbooks'}
+              onPress={() => openStackScreen('Library')}
             />
             <QuickAction
               iconBg={colors.quickGradesBg}
@@ -288,17 +312,17 @@ export default function HomeScreen() {
               icon="file-document-outline"
               iconFamily="mci"
               title="Grades"
-              subtitle="Term 2"
-              onPress={() => navigation.navigate('Grades')}
+              subtitle={termName}
+              onPress={() => openStackScreen('Grades')}
             />
             <QuickAction
               iconBg={colors.quickFeesBg}
               iconColor={colors.quickFeesFg}
-              icon="wallet-outline"
+              icon="megaphone-outline"
               iconFamily="ion"
-              title="Fees"
-              subtitle="Estimates"
-              onPress={() => navigation.navigate('Fees')}
+              title="Announcements"
+              subtitle={announcements.length > 0 ? `${announcements.length} recent` : 'School news'}
+              onPress={() => openStackScreen('Announcements')}
             />
             <QuickAction
               iconBg={colors.quickTimeBg}
@@ -306,23 +330,66 @@ export default function HomeScreen() {
               icon="calendar-clock-outline"
               iconFamily="mci"
               title="Timetable"
-              subtitle="4 weeks"
-              onPress={() => navigation.navigate('Timetable')}
+              subtitle={todayEntries.length > 0 ? `${todayEntries.length} today` : 'Schedule'}
+              onPress={() => openStackScreen('Timetable')}
             />
           </View>
         </View>
+
+        {booksBalance > 0 && (
+          <Pressable style={styles.alertBanner} onPress={() => openStackScreen('Library')}>
+            <MaterialCommunityIcons name="book-alert-outline" size={20} color={colors.brandGoldDark} />
+            <Text style={styles.alertBannerText}>
+              {unpaidBookCount} textbook{unpaidBookCount !== 1 ? 's' : ''} unpaid — GH₵{booksBalance.toFixed(2)}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.brandNavy} />
+          </Pressable>
+        )}
 
         {/* Today's Highlights — 2×2: attendance + grades (split), fee tiles */}
         <Text style={styles.sectionTitle}>Today’s Highlights</Text>
         <View style={styles.highlightsGrid}>
           <HighlightAttendance
-            onPress={() => navigation.navigate('Attendance')}
+            onPress={() => openStackScreen('Attendance')}
             attendanceRate={attendanceRate}
             studentName={studentFirstName}
           />
           <HighlightGrades grades={latestGrades} />
-          <HighlightFeeBlue balanceDue={balanceDue} />
-          <HighlightFeeOrange feeStatus={data?.fees?.status} termName={data?.fees?.termName} />
+          <Pressable style={styles.highlightWrap} onPress={openFeesTab}>
+            <HighlightFeeBlue balanceDue={balanceDue} />
+          </Pressable>
+          <Pressable style={styles.highlightWrap} onPress={openFeesTab}>
+            <HighlightFeeOrange feeStatus={data?.fees?.status} termName={data?.fees?.termName} />
+          </Pressable>
+        </View>
+
+        <View style={styles.announceSection}>
+          <View style={styles.announceHeader}>
+            <Text style={[styles.sectionTitle, styles.sectionTitleInline]}>Recent Announcements</Text>
+            {announcements.length > 0 && (
+              <Pressable onPress={() => openStackScreen('Announcements')} hitSlop={8}>
+                <Text style={styles.seeAll}>See all</Text>
+              </Pressable>
+            )}
+          </View>
+          {announcements.length > 0 ? (
+            announcements.map((a) => (
+              <Pressable
+                key={a.id}
+                style={styles.announceCard}
+                onPress={() => openStackScreen('Announcements')}
+              >
+                <Text style={styles.announceTitle}>{a.title}</Text>
+                <Text style={styles.announceDate}>{formatAnnouncementDate(a.createdAt)}</Text>
+                <Text style={styles.announceBody} numberOfLines={2}>{a.content}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <View style={styles.announceEmpty}>
+              <Ionicons name="megaphone-outline" size={20} color={colors.textSoft} />
+              <Text style={styles.announceEmptyText}>No announcements yet</Text>
+            </View>
+          )}
         </View>
 
       </ScrollView>
@@ -407,7 +474,9 @@ function HighlightAttendance({ onPress, attendanceRate, studentName }) {
 
 function HighlightGrades({ grades = [] }) {
   const topGrades = grades.slice(0, 2);
-  const avgGrade = grades.length > 0 ? 'B+' : 'N/A';
+  const avgGrade = topGrades.length > 0
+    ? (topGrades[0]?.grade ?? '—')
+    : 'N/A';
   
   return (
     <View style={styles.highlightWrap}>
@@ -777,6 +846,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 10,
   },
+  sectionTitleInline: {
+    marginBottom: 0,
+    flex: 1,
+  },
   highlightsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -931,4 +1004,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.yellowMuted,
+    borderRadius: radius.md,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandGold,
+  },
+  alertBannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.brandGoldDark },
+  announceSection: { marginTop: 16, marginBottom: 8 },
+  announceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  seeAll: { fontSize: 13, fontWeight: '600', color: colors.brandNavy },
+  announceCard: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  announceTitle: { fontSize: 14, fontWeight: '700', color: colors.brandNavy },
+  announceDate: { fontSize: 11, color: colors.textSoft, marginTop: 2 },
+  announceBody: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  announceEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  announceEmptyText: { fontSize: 13, color: colors.textMuted },
 });

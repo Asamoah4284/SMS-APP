@@ -28,7 +28,15 @@
     },
     "plugins": [
       "./plugins/withAsyncStorageMaven.js",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logo.png",
+          "color": "#1B4480",
+          "defaultChannel": "announcements"
+        }
+      ]
     ],
     "extra": {
       "eas": {

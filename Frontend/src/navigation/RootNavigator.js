@@ -2,19 +2,26 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Platform } from 'react-native';
+import { useEffect, useRef } from 'react';
 import HomeScreen from '../screens/HomeScreen';
 import AttendanceScreen from '../screens/AttendanceScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import FeesScreen from '../screens/FeesScreen';
 import ExaminationScreen from '../screens/ExaminationScreen';
 import GradesScreen from '../screens/GradesScreen';
+import LibraryScreen from '../screens/LibraryScreen';
 import TimetableScreen from '../screens/TimetableScreen';
+import AnnouncementsScreen from '../screens/AnnouncementsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AuthScreen from '../screens/AuthScreen';
 import SplashScreen from '../screens/SplashScreen';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
 import CustomTabBar from './CustomTabBar';
+import {
+  registerForPushNotifications,
+  addNotificationResponseListener,
+} from '../services/pushNotifications';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -28,27 +35,30 @@ const stackScreenOptions = {
   ...(Platform.OS === 'android' ? { animation: 'slide_from_right' } : {}),
 };
 
-/** Bottom tabs: light cross-fade when switching main sections */
+/** Bottom tabs — avoid fade animation (causes blank/white screens with nested native stacks on Android) */
 const tabScreenOptions = {
   headerShown: false,
-  animation: 'fade',
-  transitionSpec: {
-    animation: 'timing',
-    config: { duration: 280, useNativeDriver: true },
-  },
+  lazy: false,
 };
 
 // ─── Overview stack ───────────────────────────────────────────────────────────
 // Keeps all "drill-down" screens reachable from Home via push navigation.
 function OverviewStack() {
   return (
-    <Stack.Navigator screenOptions={stackScreenOptions}>
+    <Stack.Navigator
+      screenOptions={{
+        ...stackScreenOptions,
+        freezeOnBlur: false,
+      }}
+    >
       <Stack.Screen name="Home"        component={HomeScreen} />
       <Stack.Screen name="Attendance"  component={AttendanceScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Examination" component={ExaminationScreen} />
       <Stack.Screen name="Grades"      component={GradesScreen} />
       <Stack.Screen name="Timetable"   component={TimetableScreen} />
+      <Stack.Screen name="Library"     component={LibraryScreen} />
+      <Stack.Screen name="Announcements" component={AnnouncementsScreen} />
     </Stack.Navigator>
   );
 }
@@ -80,8 +90,17 @@ function MainTabs() {
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={tabScreenOptions}
+      detachInactiveScreens={false}
     >
-      <Tab.Screen name="Overview"    component={OverviewStack} />
+      <Tab.Screen
+        name="Overview"
+        component={OverviewStack}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate('Overview', { screen: 'Home' });
+          },
+        })}
+      />
       <Tab.Screen name="Attendance"  component={AttendanceStack} />
       <Tab.Screen name="Fees"        component={FeesStack} />
       <Tab.Screen name="Examination" component={ExaminationScreen} />
@@ -93,6 +112,22 @@ function MainTabs() {
 // ─── Root navigator ───────────────────────────────────────────────────────────
 export default function RootNavigator() {
   const { token, student, status } = useAuth();
+  const navigationRef = useRef(null);
+
+  useEffect(() => {
+    if (!token || !student) return;
+    registerForPushNotifications(token).catch(() => {});
+  }, [token, student?.studentId]);
+
+  useEffect(() => {
+    const sub = addNotificationResponseListener((response) => {
+      const type = response?.notification?.request?.content?.data?.type;
+      if (type === 'announcement' && navigationRef.current?.isReady()) {
+        navigationRef.current.navigate('Overview', { screen: 'Announcements' });
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Show the branded splash while AsyncStorage is read and the saved token is verified
   if (status === 'loading') {
@@ -102,7 +137,7 @@ export default function RootNavigator() {
   const isAuthenticated = !!token && !!student;
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       {isAuthenticated ? (
         // Authenticated → show the main tabbed app
         <MainTabs />

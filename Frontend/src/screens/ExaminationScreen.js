@@ -65,6 +65,15 @@ function getGradeColor(grade) {
   return colors.danger;
 }
 
+function ordinalSuffix(n) {
+  const j = n % 10;
+  const k = n % 100;
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+}
+
 const CHART_W = 300;
 /** Plot area: top pad for % labels, bottom for baseline */
 const CHART_H = 162;
@@ -364,6 +373,9 @@ function ResultCard({ result, index, tint }) {
               {result.term ?? '—'}
             </Text>
           </View>
+          {result.position ? (
+            <Text style={styles.resultPosition}>Pos. {result.position}</Text>
+          ) : null}
           <View
             style={[
               styles.resultGradeBadge,
@@ -384,6 +396,15 @@ export default function ExaminationScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, refetch } = usePortalData();
   const [refreshing, setRefreshing] = useState(false);
+  const canGoBack = navigation?.canGoBack?.() ?? false;
+
+  const handleBack = () => {
+    if (canGoBack) {
+      navigation.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview', { screen: 'Home' });
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -403,10 +424,17 @@ export default function ExaminationScreen({ navigation }) {
   }
 
   const results = data?.results ?? [];
+  const classPositionByTerm = data?.classPositionByTerm ?? {};
   const scores = results.map(r => r.totalScore).filter(s => s != null);
   const avgScore = average(scores);
   const avgGrade = scoreToGrade(avgScore);
   const mostRecent = results[0] ?? null;
+
+  const mostRecentTermId = mostRecent?.termId;
+  const overallRank = mostRecentTermId ? classPositionByTerm[mostRecentTermId] : null;
+  const overallPositionText = overallRank
+    ? `${overallRank.position}${ordinalSuffix(overallRank.position)} of ${overallRank.outOf}`
+    : null;
 
   const chartSubjects = results.slice(0, 6);
 
@@ -414,7 +442,7 @@ export default function ExaminationScreen({ navigation }) {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
         <Pressable
-          onPress={() => navigation.navigate('Overview')}
+          onPress={handleBack}
           hitSlop={12}
           style={styles.headerLeft}
         >
@@ -454,6 +482,9 @@ export default function ExaminationScreen({ navigation }) {
                     </View>
                     <Text style={styles.warmKicker}>RECENT</Text>
                   </View>
+                  {mostRecent?.position ? (
+                    <Text style={styles.warmPositionBadge}>Pos. {mostRecent.position}</Text>
+                  ) : null}
                   {mostRecent?.term ? (
                     <Text style={styles.warmTermBadge} numberOfLines={1}>
                       {mostRecent.term}
@@ -513,7 +544,7 @@ export default function ExaminationScreen({ navigation }) {
                 </View>
 
                 <Text style={styles.coolLabel} numberOfLines={1}>
-                  Performance
+                  {overallPositionText ? `Class rank: ${overallPositionText}` : 'Performance'}
                 </Text>
 
                 <View style={styles.summaryScoreRow}>
@@ -547,8 +578,8 @@ export default function ExaminationScreen({ navigation }) {
 
             {chartSubjects.length > 0 && <ScoreDistributionChart subjects={chartSubjects} />}
 
-            {/* Full results list if more than 3 */}
-            {results.length > 3 && (
+            {/* All results with per-subject positions */}
+            {results.length > 0 && (
               <>
                 <View style={styles.allResultsHeader}>
                   <Text style={styles.sectionTitle}>All Results</Text>
@@ -900,6 +931,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textSoft,
     flex: 1,
+  },
+  resultPosition: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brandNavy,
+    marginRight: 4,
+  },
+  warmPositionBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.brandGoldDark,
+    marginLeft: 6,
   },
   resultGradeBadge: {
     paddingHorizontal: 10,

@@ -145,11 +145,12 @@ function GradeCircularIndicator({ score, grade, size = 50 }) {
     </View>
   );
 }
-export default function GradesScreen() {
+export default function GradesScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { data, isLoading, error, refetch } = usePortalData();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState(null);
+  const canGoBack = navigation?.canGoBack?.() ?? false;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -203,6 +204,11 @@ export default function GradesScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
+        {canGoBack ? (
+          <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerBack}>
+            <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
+          </Pressable>
+        ) : null}
         <Text style={styles.headerTitle}>Grades</Text>
       </View>
 
@@ -308,11 +314,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: colors.white,
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  headerBack: {
+    marginRight: 4,
   },
   headerTitle: {
     fontSize: 22,
