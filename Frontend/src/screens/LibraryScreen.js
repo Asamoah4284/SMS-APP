@@ -1,7 +1,9 @@
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,10 +18,36 @@ import * as Linking from 'expo-linking';
 import { WebView } from 'react-native-webview';
 import { useAuth } from '../context/AuthContext';
 import { useBooksData } from '../hooks/useBooksData';
-import { apiFetch } from '../config/api';
+import { apiFetch, resolveMediaUrl } from '../config/api';
 import { colors, radius, TAB_BAR_HEIGHT } from '../theme';
 
 const EPS = 0.005;
+
+function BookCoverThumb({ coverUrl, size = 52 }) {
+  const [failed, setFailed] = useState(false);
+  const uri = resolveMediaUrl(coverUrl);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+
+  if (!uri || failed) {
+    return (
+      <View style={[styles.bookCover, styles.bookCoverFallback, { width: size, height: size * 1.25 }]}>
+        <MaterialCommunityIcons name="book-open-variant" size={22} color={colors.brandNavy} />
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.bookCover, { width: size, height: size * 1.25 }]}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export default function LibraryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -61,7 +89,7 @@ export default function LibraryScreen({ navigation }) {
     const ref = checkoutReferenceRef.current;
     if (!ref || checkoutFinalizedRef.current) return;
     try {
-      const res = await apiFetch(`/portal/books/paystack/verify/${ref}`, token);
+      const res = await apiFetch(`/portal/books/moolre/verify/${ref}`, token);
       if (res.status === 'SUCCESS') {
         checkoutFinalizedRef.current = true;
         setCheckoutVisible(false);
@@ -96,8 +124,8 @@ export default function LibraryScreen({ navigation }) {
     setPaying(true);
     checkoutFinalizedRef.current = false;
     try {
-      const callbackUrl = Linking.createURL('paystack');
-      const init = await apiFetch('/portal/books/paystack/initialize', token, {
+      const callbackUrl = Linking.createURL('moolre');
+      const init = await apiFetch('/portal/books/moolre/initialize', token, {
         method: 'POST',
         body: JSON.stringify({
           studentId: student.studentId,
@@ -161,9 +189,7 @@ export default function LibraryScreen({ navigation }) {
                   onPress={() => toggleBook(book.bookId)}
                   style={[styles.bookCard, selected && styles.bookCardSelected]}
                 >
-                  <View style={styles.bookIcon}>
-                    <MaterialCommunityIcons name="book-open-variant" size={22} color={colors.brandNavy} />
-                  </View>
+                  <BookCoverThumb coverUrl={book.coverUrl} />
                   <View style={styles.bookInfo}>
                     <Text style={styles.bookTitle}>{book.title}</Text>
                     {book.author ? <Text style={styles.bookAuthor}>{book.author}</Text> : null}
@@ -194,11 +220,12 @@ export default function LibraryScreen({ navigation }) {
             <Text style={styles.sectionTitle}>Paid books</Text>
             {paid.map((book) => (
               <View key={book.bookId} style={styles.paidCard}>
-                <MaterialCommunityIcons name="check-circle" size={20} color={colors.green} />
+                <BookCoverThumb coverUrl={book.coverUrl} size={44} />
                 <View style={styles.bookInfo}>
                   <Text style={styles.bookTitle}>{book.title}</Text>
                   <Text style={styles.paidMeta}>Paid GH₵{book.paid.toFixed(2)}</Text>
                 </View>
+                <MaterialCommunityIcons name="check-circle" size={20} color={colors.green} />
               </View>
             ))}
           </>
@@ -214,7 +241,12 @@ export default function LibraryScreen({ navigation }) {
       </ScrollView>
 
       <Modal visible={checkoutVisible} animationType="slide" onRequestClose={() => setCheckoutVisible(false)}>
-        <View style={{ flex: 1, paddingTop: insets.top }}>
+        <View
+          style={{
+            flex: 1,
+            paddingTop: Math.max(insets.top, 0) + (Platform.OS === 'android' ? 12 : 8),
+          }}
+        >
           <View style={styles.checkoutHeader}>
             <Pressable onPress={() => { setCheckoutVisible(false); setPaying(false); }}>
               <Text style={styles.checkoutClose}>Close</Text>
@@ -223,7 +255,20 @@ export default function LibraryScreen({ navigation }) {
             <View style={{ width: 48 }} />
           </View>
           {checkoutUrl ? (
-            <WebView source={{ uri: checkoutUrl }} onNavigationStateChange={() => verifyPayment()} />
+            <WebView
+              source={{ uri: checkoutUrl }}
+              onNavigationStateChange={() => verifyPayment()}
+              onMessage={(event) => {
+                try {
+                  const msg = JSON.parse(event.nativeEvent.data);
+                  if (msg?.type === 'moolre-payment-success') {
+                    verifyPayment();
+                  }
+                } catch {
+                  // ignore non-JSON messages
+                }
+              }}
+            />
           ) : (
             <ActivityIndicator style={{ marginTop: 40 }} />
           )}
@@ -263,11 +308,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   bookCardSelected: { borderColor: colors.brandNavy, backgroundColor: colors.brandNavyMuted },
-  bookIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+  bookCover: {
+    borderRadius: 8,
     backgroundColor: colors.hlFeeBlueBg,
+  },
+  bookCoverFallback: {
     alignItems: 'center',
     justifyContent: 'center',
   },

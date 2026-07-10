@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -279,14 +280,14 @@ export default function FeesScreen({ navigation }) {
     });
   }, [resetCheckout]);
 
-  const inspectPaystackPayment = useCallback(async (reference, { showPendingNotice = false } = {}) => {
+  const inspectMoolrePayment = useCallback(async (reference, { showPendingNotice = false } = {}) => {
     if (!reference || checkoutFinalizedRef.current || checkoutPollingRef.current) {
       return 'SKIP';
     }
 
     checkoutPollingRef.current = true;
     try {
-      const verify = await apiFetch(`/portal/paystack/verify/${encodeURIComponent(reference)}`, token);
+      const verify = await apiFetch(`/portal/fees/moolre/verify/${encodeURIComponent(reference)}`, token);
       await refetch();
 
       if (verify.status === 'SUCCESS') {
@@ -302,7 +303,7 @@ export default function FeesScreen({ navigation }) {
         await completeCheckout({
           tone: 'error',
           title: 'Payment failed',
-          message: 'Paystack marked this checkout as failed. No payment was applied.',
+          message: 'The checkout was marked as failed. No payment was applied.',
         });
         return 'FAILED';
       }
@@ -323,11 +324,11 @@ export default function FeesScreen({ navigation }) {
     }
 
     const intervalId = setInterval(() => {
-      void inspectPaystackPayment(checkoutReferenceRef.current);
+      void inspectMoolrePayment(checkoutReferenceRef.current);
     }, 2500);
 
     return () => clearInterval(intervalId);
-  }, [checkoutVisible, inspectPaystackPayment]);
+  }, [checkoutVisible, inspectMoolrePayment]);
 
   const handleCheckoutReturn = async (returnUrl) => {
     const reference = checkoutReferenceRef.current;
@@ -353,7 +354,7 @@ export default function FeesScreen({ navigation }) {
         return;
       }
 
-      const result = await inspectPaystackPayment(reference, { showPendingNotice: true });
+      const result = await inspectMoolrePayment(reference, { showPendingNotice: true });
       if (result === 'PENDING') {
         setCheckoutLoading(false);
       }
@@ -377,14 +378,14 @@ export default function FeesScreen({ navigation }) {
       return;
     }
 
-    const result = await inspectPaystackPayment(reference, { showPendingNotice: true });
+    const result = await inspectMoolrePayment(reference, { showPendingNotice: true });
     if (result === 'SUCCESS' || result === 'FAILED') {
       return;
     }
 
     Alert.alert(
       'Payment still confirming',
-      'Paystack has not confirmed this payment yet. Keep this screen open a little longer or close it now and come back to refresh the balance later.',
+      'Payment has not been confirmed yet. Keep this screen open a little longer or close it now and come back to refresh the balance later.',
       [
         { text: 'Keep waiting', style: 'cancel' },
         {
@@ -397,7 +398,7 @@ export default function FeesScreen({ navigation }) {
               tone: 'pending',
               title: 'Payment confirmation pending',
               message:
-                'We have not marked this as cancelled because Paystack has not finished confirming it yet. Pull down to refresh the balance shortly.',
+                'We have not marked this as cancelled because confirmation is still in progress. Pull down to refresh the balance shortly.',
             });
           },
         },
@@ -413,7 +414,7 @@ export default function FeesScreen({ navigation }) {
     );
   };
 
-  const payWithPaystack = async () => {
+  const payWithMoolre = async () => {
     if (!token || !student?.studentId) {
       Alert.alert('Sign in required', 'Please select your ward again and try paying.');
       return;
@@ -443,7 +444,7 @@ export default function FeesScreen({ navigation }) {
 
     setPaying(true);
     try {
-      const callbackUrl = Linking.createURL('paystack');
+      const callbackUrl = Linking.createURL('moolre');
       checkoutFinalizedRef.current = false;
       checkoutReferenceRef.current = '';
       const payload = {
@@ -454,7 +455,7 @@ export default function FeesScreen({ navigation }) {
       if (lineItems.length > 0) {
         payload.feeStructureIds = selectedFeeStructureIds;
       }
-      const init = await apiFetch('/portal/paystack/initialize', token, {
+      const init = await apiFetch('/portal/fees/moolre/initialize', token, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -626,7 +627,7 @@ export default function FeesScreen({ navigation }) {
                 styles.payBtn,
                 (paying || !canSubmitPayment) && styles.payBtnDisabled,
               ]}
-              onPress={payWithPaystack}
+              onPress={payWithMoolre}
               disabled={paying || !canSubmitPayment}
             >
               {paying ? (
@@ -673,14 +674,22 @@ export default function FeesScreen({ navigation }) {
       </ScrollView>
 
         <Modal visible={checkoutVisible} animationType="slide" onRequestClose={closeCheckout}>
-          <View style={styles.checkoutShell}>
+          <View
+            style={[
+              styles.checkoutShell,
+              {
+                paddingTop: Math.max(insets.top, 0) + (Platform.OS === 'android' ? 12 : 8),
+                paddingBottom: Math.max(insets.bottom, 14),
+              },
+            ]}
+          >
             <View style={styles.checkoutHeader}>
               <View style={styles.checkoutHeaderLeft}>
                 <View style={styles.checkoutBadge}>
                   <Ionicons name="card-outline" size={18} color={colors.brandNavy} />
                 </View>
                 <View>
-                  <Text style={styles.checkoutTitle}>Secure Paystack Checkout</Text>
+                  <Text style={styles.checkoutTitle}>Secure checkout</Text>
                   <Text style={styles.checkoutSubtitle}>Stay here until the payment is confirmed.</Text>
                 </View>
               </View>
@@ -714,10 +723,22 @@ export default function FeesScreen({ navigation }) {
                       title: 'Checkout error',
                       message:
                         event?.nativeEvent?.description ||
-                        'We could not open the Paystack checkout page. Please try again.',
+                        'We could not open the checkout page. Please try again.',
                     });
                     resetCheckout();
                     setPaying(false);
+                  }}
+                  onMessage={(event) => {
+                    try {
+                      const msg = JSON.parse(event.nativeEvent.data);
+                      if (msg?.type === 'moolre-payment-success') {
+                        void inspectMoolrePayment(checkoutReferenceRef.current, {
+                          showPendingNotice: true,
+                        });
+                      }
+                    } catch {
+                      // ignore non-JSON messages
+                    }
                   }}
                   onShouldStartLoadWithRequest={(request) => {
                     const url = request.url || '';
@@ -926,9 +947,7 @@ const styles = StyleSheet.create({
   checkoutShell: {
     flex: 1,
     backgroundColor: colors.bg,
-    paddingTop: 16,
     paddingHorizontal: 14,
-    paddingBottom: 14,
   },
   checkoutHeader: {
     flexDirection: 'row',

@@ -35,6 +35,36 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase();
 
+/** Origin of the API host (no `/api/v1`) — used for `/uploads/...` media. */
+export function getApiOrigin() {
+  return API_BASE.replace(/\/api\/v1\/?$/i, '').replace(/\/$/, '');
+}
+
+/**
+ * Turn a stored cover/photo path into a full URL the app can load.
+ * Handles absolute URLs, `/uploads/...`, and bare filenames.
+ */
+export function resolveMediaUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) {
+    // Rewrite localhost uploads to the configured API host (phones can't reach localhost)
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        const origin = getApiOrigin();
+        return `${origin}${parsed.pathname}${parsed.search}`;
+      }
+    } catch {
+      return trimmed;
+    }
+    return trimmed;
+  }
+  if (trimmed.startsWith('/')) return `${getApiOrigin()}${trimmed}`;
+  return `${getApiOrigin()}/uploads/${trimmed.replace(/^uploads\//, '')}`;
+}
+
 /**
  * Thin wrapper around fetch that attaches the parent token and
  * parses JSON automatically.
@@ -53,10 +83,21 @@ export async function apiFetch(path, token, options = {}) {
     },
   });
 
-  const data = await res.json();
+  const raw = await res.text();
+  let data = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    const looksLikeHtml = /^\s*</.test(raw);
+    throw new Error(
+      looksLikeHtml
+        ? `API returned HTML instead of JSON. Check EXPO_PUBLIC_API_BASE (currently ${API_BASE}) — use the backend port (usually :5000), not the Next.js frontend (:3000).`
+        : `Invalid JSON from API (${res.status}). Check EXPO_PUBLIC_API_BASE.`
+    );
+  }
 
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
   }
 
   return data;

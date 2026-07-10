@@ -355,10 +355,16 @@ export default function HomeScreen() {
             studentName={studentFirstName}
           />
           <HighlightGrades grades={latestGrades} />
-          <Pressable style={styles.highlightWrap} onPress={openFeesTab}>
+          <Pressable
+            style={({ pressed }) => [styles.highlightWrap, pressed && styles.highlightPressed]}
+            onPress={openFeesTab}
+          >
             <HighlightFeeBlue balanceDue={balanceDue} />
           </Pressable>
-          <Pressable style={styles.highlightWrap} onPress={openFeesTab}>
+          <Pressable
+            style={({ pressed }) => [styles.highlightWrap, pressed && styles.highlightPressed]}
+            onPress={openFeesTab}
+          >
             <HighlightFeeOrange feeStatus={data?.fees?.status} termName={data?.fees?.termName} />
           </Pressable>
         </View>
@@ -522,23 +528,28 @@ function HighlightGrades({ grades = [] }) {
 
 function HighlightFeeBlue({ balanceDue = 0 }) {
   return (
-    <View style={styles.highlightWrap}>
-      <View style={[styles.highlightInner, styles.cardHairline]}>
+    <View style={[styles.highlightInner, styles.cardHairline, styles.hlFeeCard]}>
+      <View style={[styles.hlFeeBlueInner, { backgroundColor: colors.hlFeeBlueBg }]}>
         <View
-          style={[styles.hlFeeBlueInner, { backgroundColor: colors.hlFeeBlueBg }]}
+          style={[
+            styles.hlIconWrap,
+            { backgroundColor: 'rgba(27, 68, 128, 0.10)' },
+          ]}
         >
-          <View
-            style={[
-              styles.hlIconWrap,
-              { backgroundColor: 'rgba(27, 68, 128, 0.10)' },  // logo navy tint
-            ]}
+          <Ionicons name="wallet-outline" size={18} color={colors.iconBlue} />
+        </View>
+        <View style={styles.hlFeeBlueTextCol}>
+          <Text
+            style={styles.hlFeeBlueAmount}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
           >
-            <Ionicons name="wallet-outline" size={18} color={colors.iconBlue} />
-          </View>
-          <View style={styles.hlFeeBlueTextCol}>
-            <Text style={styles.hlFeeBlueAmount}>GH₵{balanceDue.toFixed(2)}</Text>
-            <Text style={styles.hlFeeBlueDue}>Balance due</Text>
-          </View>
+            GH₵{balanceDue.toFixed(2)}
+          </Text>
+          <Text style={styles.hlFeeBlueDue} numberOfLines={1}>
+            Balance due
+          </Text>
         </View>
       </View>
     </View>
@@ -560,17 +571,24 @@ function HighlightFeeOrange({ feeStatus, termName }) {
   const label = feeStatus ? FEE_STATUS_LABEL[feeStatus] : 'No fee data';
   const color = feeStatus ? FEE_STATUS_COLOR[feeStatus] : colors.textSoft;
   return (
-    <View style={styles.highlightWrap}>
-      <View style={[styles.highlightInner, styles.cardHairline]}>
-        <View
-          style={[
-            styles.hlFeeOrangeInner,
-            { backgroundColor: colors.hlFeeOrangeBg },
-          ]}
+    <View style={[styles.highlightInner, styles.cardHairline, styles.hlFeeCard]}>
+      <View
+        style={[
+          styles.hlFeeOrangeInner,
+          { backgroundColor: colors.hlFeeOrangeBg },
+        ]}
+      >
+        <Text
+          style={[styles.hlFeeOrangeAmount, { color }]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
         >
-          <Text style={[styles.hlFeeOrangeAmount, { color }]}>{label}</Text>
-          <Text style={styles.hlFeeOrangeDue}>{termName || 'Current term'}</Text>
-        </View>
+          {label}
+        </Text>
+        <Text style={styles.hlFeeOrangeDue} numberOfLines={2}>
+          {termName || 'Current term'}
+        </Text>
       </View>
     </View>
   );
@@ -853,7 +871,8 @@ const styles = StyleSheet.create({
   highlightsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -6,
+    marginHorizontal: -4,
+    alignItems: 'stretch',
   },
   highlightWrap: {
     width: '50%',
@@ -871,6 +890,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.white,
   },
+  hlFeeCard: {
+    flex: 1,
+    minHeight: 76,
+  },
   hlTop: {
     paddingHorizontal: 8,
     paddingVertical: 8,
@@ -885,6 +908,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   hlTopTextCol: {
     marginLeft: 8,
@@ -927,6 +951,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   hlGradeSubject: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 6,
     fontSize: 12,
     fontWeight: '600',
     color: colors.text,
@@ -935,6 +962,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
   },
   hlGradeLetter: {
     fontSize: 12,
@@ -942,11 +970,12 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   hlFeeBlueInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    minHeight: 72,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    minHeight: 76,
   },
   hlFeeBlueTextCol: {
     marginLeft: 8,
@@ -965,22 +994,25 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   hlFeeOrangeInner: {
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    minHeight: 72,
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    minHeight: 76,
     justifyContent: 'center',
   },
   hlFeeOrangeAmount: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.hlFeeOrangeAmt,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
+    lineHeight: 18,
   },
   hlFeeOrangeDue: {
     marginTop: 4,
     fontSize: 11,
     color: colors.textMuted,
     fontWeight: '400',
+    lineHeight: 14,
   },
   secondaryRow: {
     flexDirection: 'row',
