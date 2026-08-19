@@ -79,7 +79,7 @@ export default function SplashScreen() {
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.name}>{school?.name || 'Deacons Academy Foundation'}</Text>
+        <Text style={styles.name}>{school?.name || 'Elmax Academy'}</Text>
         <Text style={styles.sub}>Parent Portal</Text>
       </Animated.View>
 

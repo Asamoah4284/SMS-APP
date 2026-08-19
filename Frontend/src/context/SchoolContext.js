@@ -32,7 +32,7 @@ export function SchoolProvider({ children }) {
         );
         // Use sensible defaults if fetch fails
         setSchool({
-          name: 'School Portal',
+          name: 'Elmax Academy',
           motto: '',
           address: '',
           region: '',

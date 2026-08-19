@@ -8,10 +8,15 @@ import AttendanceScreen from '../screens/AttendanceScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import FeesScreen from '../screens/FeesScreen';
 import ExaminationScreen from '../screens/ExaminationScreen';
+import ReportCardScreen from '../screens/ReportCardScreen';
 import GradesScreen from '../screens/GradesScreen';
 import LibraryScreen from '../screens/LibraryScreen';
 import TimetableScreen from '../screens/TimetableScreen';
 import AnnouncementsScreen from '../screens/AnnouncementsScreen';
+import StudentAssistantScreen from '../screens/StudentAssistantScreen';
+import GamesScreen from '../screens/GamesScreen';
+import StudentAssistantScreen from '../screens/StudentAssistantScreen';
+import GamesScreen from '../screens/GamesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AuthScreen from '../screens/AuthScreen';
 import SplashScreen from '../screens/SplashScreen';
@@ -55,8 +60,11 @@ function OverviewStack() {
       <Stack.Screen name="Attendance"  component={AttendanceScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Examination" component={ExaminationScreen} />
+      <Stack.Screen name="ReportCard" component={ReportCardScreen} />
       <Stack.Screen name="Grades"      component={GradesScreen} />
       <Stack.Screen name="Timetable"   component={TimetableScreen} />
+      <Stack.Screen name="StudentAssistant" component={StudentAssistantScreen} />
+      <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Library"     component={LibraryScreen} />
       <Stack.Screen name="Announcements" component={AnnouncementsScreen} />
     </Stack.Navigator>
@@ -82,6 +90,16 @@ function AttendanceStack() {
   );
 }
 
+// ─── Examination stack ────────────────────────────────────────────────────────
+function ExaminationStack() {
+  return (
+    <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Screen name="ExaminationMain" component={ExaminationScreen} />
+      <Stack.Screen name="ReportCard" component={ReportCardScreen} />
+    </Stack.Navigator>
+  );
+}
+
 // ─── Main 5-tab navigator ─────────────────────────────────────────────────────
 // Tab order matters — index 2 is the center rounded "Fees" button:
 //   0: Overview  |  1: Attendance  |  2: Fees (center)  |  3: Examination  |  4: Profile
@@ -103,7 +121,7 @@ function MainTabs() {
       />
       <Tab.Screen name="Attendance"  component={AttendanceStack} />
       <Tab.Screen name="Fees"        component={FeesStack} />
-      <Tab.Screen name="Examination" component={ExaminationScreen} />
+      <Tab.Screen name="Examination" component={ExaminationStack} />
       <Tab.Screen name="Profile"     component={ProfileScreen} />
     </Tab.Navigator>
   );

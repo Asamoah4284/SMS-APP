@@ -246,7 +246,7 @@ export default function AuthScreen() {
               resizeMode="contain"
             />
           </View>
-          <Text style={styles.appName}>Deacons Academy Foundation</Text>
+          <Text style={styles.appName}>Elmax Academy</Text>
           <Text style={styles.portalText}>Parent Portal</Text>
         </Animated.View>
 

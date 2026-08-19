@@ -333,6 +333,24 @@ export default function HomeScreen() {
               subtitle={todayEntries.length > 0 ? `${todayEntries.length} today` : 'Schedule'}
               onPress={() => openStackScreen('Timetable')}
             />
+            <QuickAction
+              iconBg={colors.purpleMuted}
+              iconColor={colors.purple}
+              icon="robot-outline"
+              iconFamily="mci"
+              title="Study Assistant"
+              subtitle="AI-powered help"
+              onPress={() => openStackScreen('StudentAssistant')}
+            />
+            <QuickAction
+              iconBg="#FEE2E2"
+              iconColor="#DC2626"
+              icon="gamepad-variant-outline"
+              iconFamily="mci"
+              title="Games"
+              subtitle="Coming soon"
+              onPress={() => openStackScreen('Games')}
+            />
           </View>
         </View>
 

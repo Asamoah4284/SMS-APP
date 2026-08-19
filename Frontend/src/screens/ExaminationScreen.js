@@ -449,6 +449,16 @@ export default function ExaminationScreen({ navigation }) {
           <Ionicons name="chevron-back" size={22} color={colors.brandNavy} />
           <Text style={styles.headerTitle}>Examination</Text>
         </Pressable>
+        {results.length > 0 && (
+          <Pressable
+            onPress={() => navigation.navigate('ReportCard', { termId: mostRecentTermId })}
+            hitSlop={10}
+            style={styles.reportCardBtn}
+          >
+            <Ionicons name="document-text-outline" size={16} color={colors.brandNavy} />
+            <Text style={styles.reportCardBtnText}>Report card</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView
@@ -611,6 +621,18 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: colors.brandNavy },
+  reportCardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.cardBlue,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.brandNavyMuted,
+  },
+  reportCardBtnText: { fontSize: 11, fontWeight: '800', color: colors.brandNavy },
 
   emptyCard: {
     backgroundColor: colors.cardBlue,
