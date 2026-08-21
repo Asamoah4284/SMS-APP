@@ -67,6 +67,10 @@ export default function HomeScreen() {
   const announcements = (Array.isArray(announcementsData) ? announcementsData : []).slice(0, 3);
 
   const openStackScreen = (screen) => {
+    if (screen === 'StudentAssistant' || screen === 'Games') {
+      navigation.getParent()?.getParent()?.navigate(screen);
+      return;
+    }
     navigation.navigate(screen);
   };
 
@@ -348,7 +352,7 @@ export default function HomeScreen() {
               icon="gamepad-variant-outline"
               iconFamily="mci"
               title="Games"
-              subtitle="Coming soon"
+              subtitle="6 educational games"
               onPress={() => openStackScreen('Games')}
             />
           </View>

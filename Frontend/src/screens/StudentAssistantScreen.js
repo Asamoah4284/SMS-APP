@@ -1,8 +1,11 @@
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,14 +13,21 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../context/AuthContext';
+import { useSchool } from '../context/SchoolContext';
 import { apiFetch } from '../config/api';
+import {
+  formatChatTime,
+  loadAssistantStore,
+  saveAssistantStore,
+  titleFromMessages,
+} from '../services/assistantChats';
 import { colors } from '../theme';
 
 const SUGGESTIONS = [
@@ -27,18 +37,127 @@ const SUGGESTIONS = [
   'How can I improve my grades?',
 ];
 
+function whatsAppUrl(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  const intl = digits.startsWith('0') && digits.length === 10
+    ? `233${digits.slice(1)}`
+    : digits.startsWith('233')
+      ? digits
+      : digits;
+  return `https://wa.me/${intl}`;
+}
+
+function normalizeChatImageType(mediaType) {
+  const raw = String(mediaType || '').toLowerCase();
+  if (raw === 'image/jpg' || raw === 'image/pjpeg') return 'image/jpeg';
+  if (raw.startsWith('image/')) return raw;
+  return 'image/jpeg';
+}
+
 export default function StudentAssistantScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { student, token } = useAuth();
+  const { school } = useSchool();
+  const supportWhatsapp = school?.supportWhatsapp || '';
+  const supportWhatsappUrl = whatsAppUrl(supportWhatsapp);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingImage, setPendingImage] = useState(null);
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [showRecents, setShowRecents] = useState(false);
   const flatListRef = useRef(null);
+  const activeChatIdRef = useRef(null);
 
   const studentId = student?.studentId;
   const studentName = student?.firstName || 'there';
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const store = await loadAssistantStore(studentId);
+      if (cancelled) return;
+      setChats(store.chats);
+      const active = store.chats.find((c) => c.id === store.activeId);
+      if (active?.messages?.length) {
+        setActiveChatId(active.id);
+        setMessages(active.messages);
+      } else {
+        setActiveChatId(null);
+        setMessages([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  const persistChat = useCallback(async (chatId, nextMessages) => {
+    if (!studentId || !nextMessages.length) return chatId;
+    const id = chatId || `chat_${Date.now()}`;
+    const nextChat = {
+      id,
+      title: titleFromMessages(nextMessages),
+      updatedAt: Date.now(),
+      messages: nextMessages,
+    };
+    const store = await loadAssistantStore(studentId);
+    const chatsNext = [nextChat, ...store.chats.filter((c) => c.id !== id)];
+    await saveAssistantStore(studentId, { chats: chatsNext, activeId: id });
+    setChats(chatsNext);
+    setActiveChatId(id);
+    return id;
+  }, [studentId]);
+
+  const startNewChat = useCallback(async () => {
+    if (studentId) {
+      const store = await loadAssistantStore(studentId);
+      await saveAssistantStore(studentId, { chats: store.chats, activeId: null });
+    }
+    setActiveChatId(null);
+    setMessages([]);
+    setPendingImage(null);
+    setInput('');
+    setShowRecents(false);
+  }, [studentId]);
+
+  const openChat = useCallback(async (chat) => {
+    setActiveChatId(chat.id);
+    setMessages(chat.messages || []);
+    setPendingImage(null);
+    setInput('');
+    setShowRecents(false);
+    if (studentId) {
+      await saveAssistantStore(studentId, { chats, activeId: chat.id });
+    }
+  }, [studentId, chats]);
+
+  const deleteChat = useCallback((chat) => {
+    Alert.alert('Delete chat?', 'This conversation will be removed from Recents.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const next = chats.filter((c) => c.id !== chat.id);
+          const nextActive = activeChatId === chat.id ? null : activeChatId;
+          setChats(next);
+          if (activeChatId === chat.id) {
+            setActiveChatId(null);
+            setMessages([]);
+          }
+          if (studentId) {
+            await saveAssistantStore(studentId, { chats: next, activeId: nextActive });
+          }
+        },
+      },
+    ]);
+  }, [chats, activeChatId, studentId]);
 
   const pickImage = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -58,7 +177,7 @@ export default function StudentAssistantScreen() {
     setPendingImage({
       uri: asset.uri,
       base64,
-      mediaType: asset.mimeType || 'image/jpeg',
+      mediaType: normalizeChatImageType(asset.mimeType),
     });
   }, []);
 
@@ -79,8 +198,16 @@ export default function StudentAssistantScreen() {
     setPendingImage(null);
     setLoading(true);
 
+    let chatId = activeChatIdRef.current;
     try {
-      const chatHistory = newMessages.map(m => ({ role: m.role, content: m.content }));
+      try {
+        chatId = await persistChat(chatId, newMessages);
+      } catch {
+        chatId = chatId || `chat_${Date.now()}`;
+      }
+      const chatHistory = newMessages
+        .filter((m) => !m.isError)
+        .map((m) => ({ role: m.role, content: m.content }));
       const data = await apiFetch('/portal/ai/chat', token, {
         method: 'POST',
         body: JSON.stringify({
@@ -97,18 +224,21 @@ export default function StudentAssistantScreen() {
         role: 'assistant',
         content: data.reply,
       };
-      setMessages(prev => [...prev, botMsg]);
+      const withReply = [...newMessages, botMsg];
+      setMessages(withReply);
+      await persistChat(chatId, withReply);
     } catch (err) {
       const errorMsg = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
+        isError: true,
         content: `Sorry, I couldn't process that right now. ${err.message || 'Please try again.'}`,
       };
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setLoading(false);
     }
-  }, [input, messages, loading, studentId, token, pendingImage]);
+  }, [input, messages, loading, studentId, token, pendingImage, persistChat]);
 
   const renderMessage = useCallback(({ item }) => {
     const isUser = item.role === 'user';
@@ -131,6 +261,36 @@ export default function StudentAssistantScreen() {
     );
   }, []);
 
+  const renderRecent = useCallback(({ item }) => {
+    const preview = [...(item.messages || [])].reverse().find((m) => m.content)?.content || 'No messages yet';
+    const isActive = item.id === activeChatId;
+    return (
+      <Pressable
+        onPress={() => openChat(item)}
+        onLongPress={() => deleteChat(item)}
+        style={({ pressed }) => [
+          styles.recentRow,
+          isActive && styles.recentRowActive,
+          pressed && styles.suggestionPressed,
+        ]}
+      >
+        <View style={styles.recentIcon}>
+          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.brandNavy} />
+        </View>
+        <View style={styles.recentBody}>
+          <View style={styles.recentTop}>
+            <Text style={styles.recentTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={styles.recentTime}>{formatChatTime(item.updatedAt)}</Text>
+          </View>
+          <Text style={styles.recentPreview} numberOfLines={1}>{preview}</Text>
+        </View>
+        <Pressable onPress={() => deleteChat(item)} hitSlop={10} style={styles.recentDelete}>
+          <Ionicons name="trash-outline" size={16} color={colors.textSoft} />
+        </Pressable>
+      </Pressable>
+    );
+  }, [activeChatId, openChat, deleteChat]);
+
   const showWelcome = messages.length === 0;
 
   return (
@@ -139,7 +299,6 @@ export default function StudentAssistantScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
@@ -150,15 +309,18 @@ export default function StudentAssistantScreen() {
           </View>
           <View>
             <Text style={styles.headerTitle}>Study Assistant</Text>
-            <Text style={styles.headerSub}>Powered by AI</Text>
+            <Text style={styles.headerSub}>
+              {activeChatId ? 'Continuing a chat' : 'Powered by AI'}
+            </Text>
           </View>
         </View>
         <Pressable
-          onPress={() => setMessages([])}
+          onPress={() => setShowRecents(true)}
           hitSlop={10}
-          style={styles.clearBtn}
+          style={styles.recentsBtn}
         >
-          <Ionicons name="refresh-outline" size={20} color={colors.textMuted} />
+          <Ionicons name="time-outline" size={22} color={colors.brandNavy} />
+          <Text style={styles.recentsBtnLabel}>Recents</Text>
         </Pressable>
       </View>
 
@@ -184,13 +346,22 @@ export default function StudentAssistantScreen() {
               </Pressable>
             ))}
           </View>
+          {supportWhatsappUrl ? (
+            <Pressable
+              onPress={() => Linking.openURL(supportWhatsappUrl)}
+              style={({ pressed }) => [styles.supportBtn, pressed && styles.suggestionPressed]}
+            >
+              <Ionicons name="logo-whatsapp" size={18} color="#128C7E" />
+              <Text style={styles.supportBtnText}>Need a human? WhatsApp support</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <FlatList
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={item => item.id}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.chatList, { paddingBottom: 12 }]}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
@@ -219,7 +390,6 @@ export default function StudentAssistantScreen() {
         </View>
       ) : null}
 
-      {/* Input bar */}
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <Pressable
           onPress={pickImage}
@@ -252,6 +422,42 @@ export default function StudentAssistantScreen() {
           <Ionicons name="send" size={18} color={colors.white} />
         </Pressable>
       </View>
+
+      <Modal
+        visible={showRecents}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowRecents(false)}
+      >
+        <View style={[styles.recentsPage, { paddingTop: Platform.OS === 'ios' ? 12 : insets.top }]}>
+          <View style={styles.recentsHeader}>
+            <Pressable onPress={() => setShowRecents(false)} hitSlop={10} style={styles.backBtn}>
+              <Ionicons name="close" size={24} color={colors.text} />
+            </Pressable>
+            <Text style={styles.recentsTitle}>Recents</Text>
+            <Pressable onPress={startNewChat} hitSlop={10} style={styles.newChatBtn}>
+              <Ionicons name="create-outline" size={18} color={colors.brandNavy} />
+              <Text style={styles.newChatBtnText}>New</Text>
+            </Pressable>
+          </View>
+          {chats.length === 0 ? (
+            <View style={styles.recentsEmpty}>
+              <Ionicons name="chatbubbles-outline" size={40} color={colors.textSoft} />
+              <Text style={styles.recentsEmptyTitle}>No chats yet</Text>
+              <Text style={styles.recentsEmptyText}>
+                Start a conversation and it will show up here so you can pick it up later.
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={chats}
+              keyExtractor={(item) => item.id}
+              renderItem={renderRecent}
+              contentContainerStyle={styles.recentsList}
+            />
+          )}
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -322,7 +528,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
   headerSub: { fontSize: 11, color: colors.textMuted },
-  clearBtn: { padding: 4 },
+  recentsBtn: { alignItems: 'center', paddingHorizontal: 4 },
+  recentsBtnLabel: { fontSize: 10, fontWeight: '600', color: colors.brandNavy, marginTop: 1 },
 
   welcomeContainer: { flex: 1, paddingHorizontal: 24, paddingTop: 40, alignItems: 'center' },
   welcomeIconWrap: {
@@ -355,6 +562,14 @@ const styles = StyleSheet.create({
   },
   suggestionPressed: { opacity: 0.85 },
   suggestionText: { fontSize: 14, color: colors.brandNavy, fontWeight: '500', flex: 1, marginRight: 8 },
+  supportBtn: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+  },
+  supportBtnText: { fontSize: 13, fontWeight: '600', color: '#128C7E' },
 
   chatList: { paddingHorizontal: 16, paddingTop: 12 },
   messageBubble: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end' },
@@ -463,6 +678,58 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: colors.borderLight,
   },
+  recentsPage: { flex: 1, backgroundColor: colors.bg },
+  recentsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  recentsTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  newChatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.brandNavyMuted,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  newChatBtnText: { fontSize: 13, fontWeight: '700', color: colors.brandNavy },
+  recentsList: { paddingVertical: 8 },
+  recentsEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    gap: 8,
+  },
+  recentsEmptyTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 8 },
+  recentsEmptyText: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  recentRowActive: { backgroundColor: colors.brandNavyMuted },
+  recentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.brandNavyMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentBody: { flex: 1 },
+  recentTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  recentTitle: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text },
+  recentTime: { fontSize: 11, color: colors.textSoft },
+  recentPreview: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  recentDelete: { padding: 4 },
   richText: { fontSize: 14, lineHeight: 20, color: colors.text },
   richBold: { fontWeight: '700' },
   richItalic: { fontStyle: 'italic' },

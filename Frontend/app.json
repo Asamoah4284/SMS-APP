@@ -27,7 +27,6 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "./plugins/withAsyncStorageMaven.js",
       "expo-web-browser",
       [
         "expo-notifications",

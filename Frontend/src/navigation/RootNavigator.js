@@ -14,9 +14,7 @@ import LibraryScreen from '../screens/LibraryScreen';
 import TimetableScreen from '../screens/TimetableScreen';
 import AnnouncementsScreen from '../screens/AnnouncementsScreen';
 import StudentAssistantScreen from '../screens/StudentAssistantScreen';
-import GamesScreen from '../screens/GamesScreen';
-import StudentAssistantScreen from '../screens/StudentAssistantScreen';
-import GamesScreen from '../screens/GamesScreen';
+import GamesStack from './GamesNavigator';
 import ProfileScreen from '../screens/ProfileScreen';
 import AuthScreen from '../screens/AuthScreen';
 import SplashScreen from '../screens/SplashScreen';
@@ -63,8 +61,6 @@ function OverviewStack() {
       <Stack.Screen name="ReportCard" component={ReportCardScreen} />
       <Stack.Screen name="Grades"      component={GradesScreen} />
       <Stack.Screen name="Timetable"   component={TimetableScreen} />
-      <Stack.Screen name="StudentAssistant" component={StudentAssistantScreen} />
-      <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Library"     component={LibraryScreen} />
       <Stack.Screen name="Announcements" component={AnnouncementsScreen} />
     </Stack.Navigator>
@@ -141,7 +137,10 @@ export default function RootNavigator() {
     const sub = addNotificationResponseListener((response) => {
       const type = response?.notification?.request?.content?.data?.type;
       if (type === 'announcement' && navigationRef.current?.isReady()) {
-        navigationRef.current.navigate('Overview', { screen: 'Announcements' });
+        navigationRef.current.navigate('MainTabs', {
+          screen: 'Overview',
+          params: { screen: 'Announcements' },
+        });
       }
     });
     return () => sub.remove();
@@ -157,8 +156,11 @@ export default function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef}>
       {isAuthenticated ? (
-        // Authenticated → show the main tabbed app
-        <MainTabs />
+        <Stack.Navigator screenOptions={stackScreenOptions}>
+          <Stack.Screen name="MainTabs" component={MainTabs} />
+          <Stack.Screen name="StudentAssistant" component={StudentAssistantScreen} />
+          <Stack.Screen name="Games" component={GamesStack} />
+        </Stack.Navigator>
       ) : (
         // Not authenticated → phone lookup + child selection
         <Stack.Navigator screenOptions={stackScreenOptions}>

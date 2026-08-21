@@ -40,6 +40,7 @@ export function SchoolProvider({ children }) {
           phone: '',
           email: '',
           logo: null,
+          supportWhatsapp: '',
         });
         setError(err.message);
       } finally {
